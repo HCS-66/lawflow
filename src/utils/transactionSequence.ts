@@ -13,6 +13,7 @@ export interface BalanceContinuityIssue {
  * (e.g. 减免年费, 减免费用, 年费减免, 免收年费) rather than an invalid or missing amount.
  */
 export function isFeeWaiver(transaction: StandardTransaction): boolean {
+  if (transaction.transactionType === '费用减免') return true;
   const text = `${transaction.summary || ''} ${transaction.counterpartyName || ''} ${transaction.rawText || ''}`;
   return /减免|免收|豁免|优惠|抵扣/.test(text);
 }
@@ -29,7 +30,7 @@ export function isBalanceConfirmedZeroSettlement(
 ): boolean {
   if (transaction.amount !== 0) return false;
   if (isFeeWaiver(transaction)) return true;
-  const text = `${transaction.summary || ''} ${transaction.counterpartyName || ''} ${transaction.rawText || ''}`;
+  const text = `${transaction.transactionType || ''} ${transaction.summary || ''} ${transaction.counterpartyName || ''} ${transaction.rawText || ''}`;
   if (!/结息|利息结算|计息/.test(text)) return false;
   if (transaction.balanceAvailable === false || transaction.balance == null) return false;
 
@@ -63,7 +64,8 @@ export function isCreditCardStatement(transactions: StandardTransaction[], bankN
   const withBalance = transactions.filter(transaction => transaction.balanceAvailable !== false && transaction.balance != null);
   const negativeBalances = withBalance.filter(transaction => Number(transaction.balance) < 0).length;
   const creditCardRows = transactions.filter(transaction =>
-    /透支|年费|自动转[账帐]还款|分期付款|消费转分期|分期利息|分期费用/.test(
+    ['透支利息', '分期', '分期转换', '分期退款', '违约金'].includes(transaction.transactionType || '')
+    || /透支|年费|自动转[账帐]还款|分期付款|消费转分期|分期利息|分期费用/.test(
       `${transaction.summary || ''} ${transaction.counterpartyName || ''} ${transaction.rawText || ''}`
     )
   ).length;

@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import { BankAccount, StandardTransaction } from '../types/transaction';
+import { parseStandardStatementRows } from './standardStatementCsv';
 
 /**
  * Universal bank statement Excel / CSV parser.
@@ -9,11 +10,14 @@ export async function parseExcelBankStatement(
   file: File
 ): Promise<{
   account: BankAccount;
+  accounts?: BankAccount[];
   transactions: StandardTransaction[];
 }> {
   let rows: any[][];
   if (file.name.toLowerCase().endsWith('.csv')) {
     rows = parseCsvRows(await file.text());
+    const standard = parseStandardStatementRows(rows, file.name);
+    if (standard) return standard;
   } else {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(await file.arrayBuffer());

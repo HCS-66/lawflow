@@ -1,0 +1,7 @@
+只读取这张完整银行材料页面上的本方账号、卡号和出具银行。不读取金额、余额、交易类型或对方名称。不要猜测缺失的字符，不按常见号码修正。
+
+输出严格JSON：{"bankName":"本页明确的出具银行原文或空字符串","identifiers":[{"role":"account|card","value":"逐字号码","characters":["每一位字符"],"table":1,"scope":"header|transaction_column|account_information","label":"原文栏目或标签","uncertainPositions":[从1开始的无法确定字符位置]}],"issues":["具体未能确认的内容"]}
+
+仔细区分1/4、0/6/8等字形。characters连接必须与value完全一致。只抄本方账号或卡号，身份证号、柜员号、查询编号、对方账号不能列入。本页有账号和关联卡号时分别记录，不互相替代。同一表内逐笔本方账号一致时合为一个identifier，scope=transaction_column；不一致则逐个列出。
+table为本页对应表格从上到下的编号；页眉账号用header，账户资料表用account_information。同页多张表不能混用账号。数字截断时只保留看得见的部分并写issues，不从其他地方补号。没有本方账号时identifiers=[]。
+输入只有本页图像，没有任何其他识别答案或预期号码。只输出JSON。

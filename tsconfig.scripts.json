@@ -1,13 +1,35 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "types": ["node", "vite/client"],
+    "types": [
+      "node",
+      "vite/client"
+    ],
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["scripts/onlineDebugServer.ts", "scripts/replayRecognition.ts", "scripts/recheckRecognitionPages.ts", "scripts/testRecognitionStorage.ts", "scripts/testRecognitionReview.ts"]
+  "include": [
+    "scripts/onlineDebugServer.ts",
+    "scripts/replayRecognition.ts",
+    "scripts/recheckRecognitionPages.ts",
+    "scripts/testRecognitionStorage.ts",
+    "scripts/testRecognitionReview.ts",
+    "scripts/assembleStatementSources.ts",
+    "scripts/compareIndependentKeys.ts",
+    "scripts/finalizeQualityDelivery.ts",
+    "scripts/materializeTableMapping.ts",
+    "scripts/planAccountRecovery.ts",
+    "scripts/runQualityTrial.ts",
+    "scripts/scoreQualityTrial.ts",
+    "scripts/testQualityReview.ts",
+    "scripts/planPrimaryRecovery.ts"
+  ]
 }

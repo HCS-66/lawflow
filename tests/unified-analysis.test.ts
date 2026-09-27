@@ -5,17 +5,19 @@ import { CaseMetadata } from '../src/types/case';
 import { BankAccount, StandardTransaction } from '../src/types/transaction';
 import { classifyTransactionFlow } from '../src/engine/flowClassification';
 import { effectiveCounterpartyName } from '../src/engine/bilateral';
+import { aggregateCounterparties } from '../src/engine/bilateral';
+import { counterpartyIdentityKey } from '../src/engine/counterpartyIdentity';
 import { accountIdentityKey } from '../src/utils/accountIdentity';
 
 const metadata: CaseMetadata = {
   id: 'case-unified', caseNumber: '执1号', courtName: '测试法院', applicantName: '申请人',
-  respondentName: '胡艳红', targetAmount: 10000, createdAt: '2025-01-01', updatedAt: '2025-01-01',
+  respondentName: '测试甲', targetAmount: 10000, createdAt: '2025-01-01', updatedAt: '2025-01-01',
   timeline: { executionFilingDate: '2025-01-01', customNodes: [] }, declaredAssets: []
 };
 
 function account(number: string): BankAccount {
   return {
-    accountNumber: number, accountName: '胡艳红', bankName: '测试银行', ownerType: 'DEBTOR_MAIN',
+    accountNumber: number, accountName: '测试甲', bankName: '测试银行', ownerType: 'DEBTOR_MAIN',
     fileName: 'source.pdf', fileType: 'pdf', totalIn: 0, totalOut: 0, transactionCount: 0,
     startDate: '2025-01-01', endDate: '2025-01-03', startBalance: 0, endBalance: 0,
     isBalanced: true, balanceDiff: 0, balanceAvailable: true, sourceDocumentId: 'doc-1'
@@ -24,7 +26,7 @@ function account(number: string): BankAccount {
 
 function transaction(id: string, accountNumber: string, direction: 'IN' | 'OUT', amount: number, balance: number, counterpartyName: string, summary = ''): StandardTransaction {
   return {
-    id, accountNumber, accountName: '胡艳红', bankName: '测试银行', transactionTime: '2025-01-02',
+    id, accountNumber, accountName: '测试甲', bankName: '测试银行', transactionTime: '2025-01-02',
     transactionDate: '2025-01-02', direction, amount, balance, counterpartyName, summary,
     rawSourceFile: 'source.pdf', sourceDocumentId: 'doc-1', balanceAvailable: true
   };
@@ -33,8 +35,8 @@ function transaction(id: string, accountNumber: string, direction: 'IN' | 'OUT',
 test('unified analysis builds explicit entities and relations without mutating canonical rows', () => {
   const accounts = [account('A'), account('B')];
   const rows = [
-    { ...transaction('out', 'A', 'OUT', 100, 0, '胡艳红'), counterpartyAccount: 'B' },
-    { ...transaction('in', 'B', 'IN', 100, 100, '胡艳红'), counterpartyAccount: 'A' },
+    { ...transaction('out', 'A', 'OUT', 100, 0, '测试甲'), counterpartyAccount: 'B' },
+    { ...transaction('in', 'B', 'IN', 100, 100, '测试甲'), counterpartyAccount: 'A' },
     transaction('judicial', 'B', 'OUT', 40, 60, '', '司法划扣')
   ];
   const canonicalSnapshot = JSON.stringify(rows);
@@ -97,6 +99,33 @@ test('changing any canonical transaction invalidates the analysis fingerprint an
   const revisedAccount = [{ ...accounts[0], startBalance: 100 }];
   const third = engine.evaluateCase(metadata, changed, revisedAccount, second).report;
   assert.notEqual(second.analysisFingerprint, third.analysisFingerprint);
+});
+
+test('changing a standard CSV type invalidates the cached analysis and updates its financial use', () => {
+  const accounts = [account('A')], engine = new LawFlowEngine();
+  const row = { ...transaction('csv', 'A', 'OUT', 40, 60, ''), transactionType: '账户转账' };
+  const first = engine.evaluateCase(metadata, [row], accounts).report;
+  const next = engine.evaluateCase(metadata, [{ ...row, transactionType: '司法扣划' }], accounts, first).report;
+  assert.notEqual(first.analysisFingerprint, next.analysisFingerprint);
+  assert.equal(next.analysisGraph?.judicialDeductions.length, 1);
+});
+
+test('full counterparty accounts remain one identity across names; same names on different accounts stay separate', () => {
+  const rows = [
+    { ...transaction('a', 'A', 'OUT', 100, 900, '某甲'), counterpartyAccount: '0012345678901234' },
+    { ...transaction('b', 'A', 'IN', 50, 950, '某甲（原文异体）'), counterpartyAccount: '0012345678901234' },
+    { ...transaction('c', 'A', 'OUT', 30, 920, '某甲'), counterpartyAccount: '0012345678901235' }
+  ];
+  const report = new LawFlowEngine().evaluateCase(metadata, rows, [account('A')]).report;
+  assert.equal(report.analysisGraph?.counterparties.length, 2);
+  const summaries = aggregateCounterparties(rows);
+  assert.equal(Object.keys(summaries).length, 2);
+  const entity = summaries[counterpartyIdentityKey(rows[0])];
+  assert.equal(entity.totalIn, 50); assert.equal(entity.totalOut, 100);
+  assert.deepEqual(entity.transactionIds, ['a', 'b']);
+  assert.deepEqual(entity.aliases, ['某甲', '某甲（原文异体）']);
+  const masked = { ...rows[0], counterpartyAccount: '尾号1234' };
+  assert.notEqual(counterpartyIdentityKey(masked), counterpartyIdentityKey(rows[0]));
 });
 
 test('recalculation preserves lawyer annotations only for the same stable rule match', () => {
@@ -181,8 +210,8 @@ test('same-day same-amount rows are not merged without another strong matching f
 test('name-only possible internal transfers stay in totals and are exposed as review candidates', () => {
   const accounts = [account('6222000000000001'), account('6222000000000002')];
   const rows = [
-    transaction('out-name', accounts[0].accountNumber, 'OUT', 500, 500, '胡艳红', '转账'),
-    transaction('in-name', accounts[1].accountNumber, 'IN', 500, 500, '胡艳红', '转账')
+    transaction('out-name', accounts[0].accountNumber, 'OUT', 500, 500, '测试甲', '转账'),
+    transaction('in-name', accounts[1].accountNumber, 'IN', 500, 500, '测试甲', '转账')
   ];
   const result = new LawFlowEngine().evaluateCase(metadata, rows, accounts).report;
   assert.equal(result.internalTransferCount, 0);

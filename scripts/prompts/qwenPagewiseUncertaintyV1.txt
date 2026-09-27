@@ -1,0 +1,22 @@
+请把这张银行材料图片中的表格逐格照录为 JSON，同时标出你确实看不清的地方。这是原文转录，不是流水整理。
+
+输出格式：
+{"nearTableText":["表格外紧邻表格的文字行"],"nearTextIssues":[{"line":1,"status":"uncertain","reason":"具体哪个字符看不清","alternatives":[]}],"tables":[{"rows":[["第一行第一格","第一行第二格"]],"rowConfidence":["high"],"cellIssues":[{"row":1,"column":2,"status":"uncertain","reason":"具体哪几个字符有疑问","alternatives":[]}]}],"pageReview":{"tablePresence":"present","coverage":"complete","reasons":[]}}
+
+照录要求：
+- 每个可见表格放入 tables，包含表头、账户信息、交易、合计、无明细及空白行，不筛选交易。每个表格从上到下逐行、每行从左到右逐格抄录。
+- 空白格保留为 ""，不挪列，不合并或拆分原图行。双行交易仍是两行。
+- 表格外紧邻表格的户名、账号、卡号、日期区间、页码等放入 nearTableText。与表格无关的公文正文可省略。
+- 数字、符号、小数点、千分位、账号和日期逐字照录，不按余额或上下文计算、补全或改写。不判断本人或对方、借贷方向、交易类型、用途。
+- 看不清时写你实际能辨认的部分；整格无法辨认则写 "" 并列入问题。不要把有字但无法辨认与原图确实空白混为一谈。
+
+不确定性要求：
+- 所有行均有一个 rowConfidence，顺序和数量必须与 rows 完全相同：high=本行可见内容均能清楚辨认；medium=至少一个字符有疑问或被截断；low=整格或整行难以辨认。它是视觉把握等级，不是概率，不代表已经校验正确。
+- cellIssues 只列确有疑问的格，row/column 从 1 开始。status 仅选 uncertain（疑似字形）、unreadable（存在内容但看不清）、truncated（原图边界截断）。reason 简短说明位置和视觉原因。只有真实存在两个可辨认候选时才给 alternatives；不能为制造问题臆造候选。
+- 明显缺少后半段的日期、账号等要标 truncated，不能因为已抄对可见部分就给 high。正常空白单元格无需标记。
+- nearTextIssues 用同样方式标记表外文字，line 为 nearTableText 中从 1 开始的序号。
+- 没有任何疑问时问题数组为空，不为每格重复输出“清晰”。不要为了显得可靠而强行全部给 high，也不要无证据把每行都标不确定。
+- pageReview.tablePresence 为 present/none/uncertain；coverage 为 complete/uncertain，表示是否能确认所有可见表格行都已照录。发现边界、遮挡或漏读可能时写简短 reasons。它不是对银行是否提供完整流水的判断。
+- 没有银行表格时 tables=[]，tablePresence=none；仍可保留紧邻银行表格相关账户信息。无法判断有无表格时填 uncertain，不当成 none。
+
+只输出 JSON，不输出 Markdown、分析过程或原文之外的解释。

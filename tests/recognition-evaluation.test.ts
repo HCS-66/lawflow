@@ -34,3 +34,11 @@ test('evaluation requires manual truth and ignores unannotated pages rather than
   assert.equal(evaluated.expectedRows, 1);
   assert.equal(evaluated.passed, true);
 });
+
+test('counterparty account errors count even when all cash figures balance', () => {
+  const labelled = truth();
+  labelled.documents[0].rows[0].fields.counterpartyAccount = '6222000000000011';
+  const result = evaluateRecognition([{ ...row(), counterpartyAccount: '6222000000000012' }], labelled);
+  assert.equal(result.passed, false);
+  assert.ok(result.errors.some(error => error.field === 'counterpartyAccount'));
+});

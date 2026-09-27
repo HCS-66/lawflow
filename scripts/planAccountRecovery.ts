@@ -1,0 +1,12 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { planAccountRecovery } from '../src/recognition/accountRecoveryPlan';
+import type { IndependentPage } from '../src/recognition/independentComparison';
+const [trialDir, mappingDir, independentDir, output] = process.argv.slice(2);
+const read = (path: string) => JSON.parse(readFileSync(resolve(path), 'utf8'));
+const trial = read(`${trialDir}/result.json`), registry = read(`${mappingDir}/registry.json`);
+const pages: Record<number, IndependentPage> = {};
+for (const page of registry.pages) pages[page] = read(`${independentDir}/page-${String(page).padStart(2, '0')}.json`).result;
+const plan = planAccountRecovery(trial.pending, registry, pages);
+writeFileSync(resolve(output), JSON.stringify(plan, null, 2));
+console.log(plan.selected.map(p => p.page).join(','));

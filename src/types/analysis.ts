@@ -28,6 +28,7 @@ export interface AnalysisCounterpartyEntity {
   id: string;
   kind: 'COUNTERPARTY';
   name: string;
+  aliases?: string[];
   account?: string;
   transactionIds: string[];
   incomingTransactionIds: string[];

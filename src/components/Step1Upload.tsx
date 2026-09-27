@@ -320,14 +320,14 @@ export const Step1Upload: React.FC<Step1Props> = ({
         };
         if (name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.csv')) {
           setStatusText(`正在读取电子流水“${file.name}”…`);
-          const { account, transactions: parsedTx } = await parseExcelBankStatement(file);
+          const { account, accounts: parsedAccounts, transactions: parsedTx } = await parseExcelBankStatement(file);
           try {
             await saveSourceDocument(caseId, file, source);
           } catch (storageError) {
             sourceStorageWarning = true;
             console.warn('Source document storage unavailable; continuing recognition', storageError);
           }
-          const annotated = attachSourceProvenance([account], parsedTx, source, extractionRun);
+          const annotated = attachSourceProvenance(parsedAccounts || [account], parsedTx, source, extractionRun);
           const canonical = normalizeRecognizedData(annotated.accounts, annotated.transactions);
           removePreviousVersion();
           newAccounts.push(...canonical.accounts);

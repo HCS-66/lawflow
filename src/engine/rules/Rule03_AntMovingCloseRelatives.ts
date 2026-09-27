@@ -34,11 +34,11 @@ export class Rule03_AntMovingCloseRelatives extends BaseRule {
       if (cp.transactionCount >= minCount && cp.netOut >= totalThreshold) {
         // Collect matching transactions
         const relatedTx = context.allTransactions.filter(
-          tx => !tx.isInternalTransfer && tx.counterpartyName === cp.name && tx.direction === 'OUT'
+          tx => !tx.isInternalTransfer && (cp.transactionIds ? cp.transactionIds.includes(tx.id) : tx.counterpartyName === cp.name) && tx.direction === 'OUT'
         );
 
         matches.push({
-          matchId: `${this.ruleId}_${cp.name}`,
+          matchId: `${this.ruleId}_${cp.identityKey || cp.name}`,
           ruleId: this.ruleId,
           ruleName: this.name,
           category: this.category,

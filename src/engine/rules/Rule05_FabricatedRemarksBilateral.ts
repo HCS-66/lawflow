@@ -1,5 +1,6 @@
 import { BaseRule, RuleContext } from './BaseRule';
 import { AnomalyMatch, RuleCategory, SeverityLevel } from '../../types/rules';
+import { summaryForCounterparty } from '../counterpartyIdentity';
 
 export class Rule05_FabricatedRemarksBilateral extends BaseRule {
   readonly ruleId = 'RULE_FABRICATED_REMARKS_BILATERAL';
@@ -25,7 +26,7 @@ export class Rule05_FabricatedRemarksBilateral extends BaseRule {
 
       // Check counterparty total incoming from this counterparty
       const cpName = tx.counterpartyName?.trim() || '';
-      const cpSummary = context.counterpartySummaries[cpName];
+      const cpSummary = summaryForCounterparty(tx, context.counterpartySummaries);
 
       const totalIn = cpSummary ? cpSummary.totalIn : 0;
       const bilateralCoverage = tx.amount > 0 ? totalIn / tx.amount : 0;

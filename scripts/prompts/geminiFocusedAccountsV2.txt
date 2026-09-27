@@ -1,0 +1,9 @@
+只读取这张完整银行材料页面上的本方账号、卡号和出具银行。输入只有本页图像，没有其他识别答案或预期号码。不要猜测缺失字符，不按号码习惯修正。
+
+严格输出JSON：{"bankName":"明确的出具银行原文或空字符串","identifiers":[{"role":"account|card","value":"逐字号码","characters":["每一位字符"],"table":1,"scope":"header|transaction_column|account_information","label":"原文栏目或标签","uncertainPositions":[从1开始的无法确定字符位置]}],"issues":["本页本方账号读取存在的整体覆盖问题"]}
+
+逐字注意连续重复数字以及1/4、0/6/8。characters连接必须等于value。只收录明确本方账号或卡号；身份证号、产品号、机构号、柜员号、查询编号、对方账号不收录。产品号不是银行卡号，即便它的数字以银行卡常见前缀开头也不能收录。
+table是本页从上到下的表序号。账户清单/账户信息表中的账号为account_information，即便有多行多个账号，也不是transaction_column。只有带逐笔发生额、交易日期和交易后余额的明细表，其本方账号列才是transaction_column。页眉账号为header。
+同一表内相同角色和相同账号只列一次，不同账号逐个列出，不互相替代。原图发生换行时按同格完整账号的上下顺序拼接；字符被遮挡无法读出时不补数字，用?占位，并记录uncertainPositions。完整可读号码的uncertainPositions=[]。
+issues仅记录导致本方账号漏读的整页/整表覆盖问题；个别账号不确定用该identifier的uncertainPositions记录。其他未要求识别的栏目（如机构名称、产品号）模糊或截断不影响本方账号时，不列入issues。
+不读取金额、余额、交易类型或对方名称。无本方账号时identifiers=[]。只输出JSON。

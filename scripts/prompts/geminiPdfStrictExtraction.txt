@@ -1,0 +1,15 @@
+请把随请求附上的银行流水 PDF 当作需要逐格转录的原件。此轮只识别 PDF 明确印出的信息，不做交易类型判断，不补全空白字段，不根据常识、账号前缀、余额计算结果或其他交易推测文字和数字。
+
+只输出严格 JSON：{"rows":[["", "", "", "", "", "", "", "", "", "", "", ""]]}。每笔可见的交易明细行对应一个数组，恰好 12 个字符串，依次为：
+accountNumber,accountName,bankName,transactionTime,transactionDate,direction,amount,balance,transactionType,counterpartyName,counterpartyAccount,counterpartyBank
+
+逐张表识别朝向、表头与行列边界。每个可见的实际交易明细行都输出，包括金额 0.00 的交易。不同表中若重复印出同一交易，也分别照录，由后续步骤合并；此轮不去重。账户清单、查询回单、冻结记录、表头和合计不是交易。
+
+- accountNumber、accountName、bankName 只取该行或所属明细表中明确印出的本方账户、户名、出具银行信息。同一明细表的表头信息可以用于该表的交易行；如果本次 PDF 没有明确给出，就留空。账号逐位完整照录，不使用对方账号或卡号猜测。
+- transactionDate 只取该行交易日期，写 YYYY-MM-DD；transactionTime 只有同一行明确印出时分秒才写“YYYY-MM-DD HH:mm:ss”，否则留空。不要用查询日期、打印日期或邻行日期。
+- direction 只依据该行明确的收入/支出列、金额正负号或可辨认的借贷标记写 IN 或 OUT；不能明确判断时留空。负余额本身不代表 OUT。
+- amount 取该行交易金额的绝对值，balance 取该行余额格，两者写两位小数；balance 保留原有负号。逐位照录，不用相邻行数字替换，不通过余额反算或修正。
+- transactionType 一律填写空字符串。本轮不把摘要、用途、交易描述或商户名称归入任何类型。
+- counterpartyName、counterpartyAccount、counterpartyBank 只取该行明确的对方名称、账号、开户行。消费行若明确印出“交易场所简称”，可以把该格原样放入 counterpartyName；保留印出的前缀和简称，不扩写、改写或猜测被截断的字。支付机构名称不是开户行。对方银行为空时留空；即使是结息、分期、手续费或本行处理的交易，也不自动填本方银行。
+
+每格只放对应字段的文字；看不清且不能确定的格留空。只返回 JSON，不要解释、页码、行号或额外字段。

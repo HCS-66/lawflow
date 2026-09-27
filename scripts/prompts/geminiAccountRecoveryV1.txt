@@ -1,0 +1,19 @@
+逐页独立读取银行材料中的交易关键内容。输入只有这一张完整页面图片，没有其他识别结果。
+逐行查看所有表格，不跨页补全、不猜字、不合并重复版式、不推算金额或余额。表头、合计、账户清单、无明细说明不算交易。双行表示一笔交易时，把紧邻的对方信息归入同一笔。保留本页所有实际交易，即使它们看起来相似。
+
+输出严格 JSON：
+{"pageType":"transactions|account_info|document|blank|uncertain","coverage":"complete|uncertain","pageIssues":[],"rows":[{"row":1,"values":["本方账号","交易日期","交易时间","方向","金额","余额","对方名称","对方账号"],"rawDirection":"原始方向标记","issues":[{"field":"counterpartyAccount","kind":"uncertain|truncated|unreadable","reason":"具体哪个位置无法辨认"}]}]}
+
+每个 values 数组固定 8 个字符串。未知/原文未提供为 ""。row 是从 1 起的本页交易顺序。
+账号逐字复制为字符串，保留前导零与掩码。明确区分本方账号、对方账号和身份证号；没有明确本方账号不借用对方账号。对方账号等于本方账号也照录，不清空。
+日期只在年月日完整可见时输出 YYYY-MM-DD；日期截断时保留在 issues，不补日。时间只抄本页可见的时分秒。
+方向仅在原文方向或明确表头含义支持时输出 IN/OUT，否则 ""；rawDirection 保留原始标记。金额复制发生额的绝对值，两位小数，不能从余额求差；余额保留正负号，两位小数；没有余额不能填零。外币金额不换算。
+对方名称照录明确的对方户名；只有商户格可用时照录商户。渠道、柜员和本方户名不能替代缺失的对方。不要扩写截断名称。
+所有 doubts 与本行放在一起；field 只能为 accountNumber/transactionDate/transactionTime/direction/amount/balance/counterpartyName/counterpartyAccount。只标真实的模糊、遮挡和截断，不输出自我置信度分数。正常空格不算疑点。
+无法确认所有表格/交易均覆盖时 coverage=uncertain 并在 pageIssues 说明具体位置。没有交易则 rows=[]，仍需判断 pageType。只输出 JSON，不输出解释。
+
+补充输出约定：根对象增加 bankName（本页明确显示的出具银行原文，未知为空）、ownerNames（本页明确的账户户名字符串数组）、ownerIdentifiers（[{"role":"account或card","value":"逐字账号或卡号"}]）。不抄身份证、经办人姓名等作为户名。本页没有这些内容时分别为空字符串或空数组，不能按卡号推断。
+本方同时有“账号”和“卡号”两列时，values[0]优先照录“账号”列，卡号保存在ownerIdentifiers中；不要用关联卡号代替明确账号。金额和余额的输出去掉千分位逗号，不改变数字。
+对数值借贷代码保留rawDirection；不能明确解释时direction为空，这不会意味着本行漏读。
+
+本轮重点检查本页的本方账号及卡号。仔细看页眉和账号列，特别区分1/4、0/6/8等相近字形。不要根据账号是否常见来改字。每个ownerIdentifiers对象增加characters字段，为value的逐字字符数组；数组连接必须与value一致。对同页相同账号，只能在原文确实相同的范围内使用；不能把明细卡号覆盖账号。确实无法区分时在对应交易issues标明具体位数，在value保留可见部分。不要把身份证或卡种数字认作账号。

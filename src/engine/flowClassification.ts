@@ -46,6 +46,18 @@ const definitions: Record<FlowCategoryCode, Omit<FlowClassification, 'code'>> = 
 
 export function classifyTransactionFlow(transaction: StandardTransaction): FlowClassification | undefined {
   if (transaction.isInternalTransfer || transaction.direction === 'UNKNOWN') return undefined;
+  const standard: Record<string, Partial<Record<'IN' | 'OUT', FlowCategoryCode>>> = {
+    '司法扣划': { OUT: 'JUDICIAL_DEDUCTION' }, '贷款放款': { IN: 'LOAN_DISBURSEMENT' },
+    '贷款还款': { OUT: 'LOAN_REPAYMENT' }, '信用卡还款': { OUT: 'LOAN_REPAYMENT', IN: 'TRANSFER_IN' },
+    '工资收入': { IN: 'SALARY_INCOME' }, '存款结息': { IN: 'INTEREST_INCOME' },
+    '退款': { IN: 'REFUND_REVERSAL' }, '分期退款': { IN: 'REFUND_REVERSAL' },
+    '手续费': { OUT: 'TAX_AND_FEES' }, '透支利息': { OUT: 'TAX_AND_FEES' },
+    '保险支出': { OUT: 'INSURANCE' }, '消费': { OUT: 'CONSUMPTION' }, '缴费': { OUT: 'CONSUMPTION' },
+    '账户转账': { IN: 'TRANSFER_IN', OUT: 'TRANSFER_OUT' }, '第三方支付': { IN: 'TRANSFER_IN', OUT: 'TRANSFER_OUT' },
+    '分期': { OUT: 'LOAN_REPAYMENT' }
+  };
+  const selected = standard[transaction.transactionType || '']?.[transaction.direction];
+  if (selected) return { code: selected, ...definitions[selected] };
   const text = `${transaction.summary || ''} ${transaction.counterpartyName || ''} ${transaction.counterpartyBank || ''} ${transaction.rawText || ''}`.toLowerCase();
   let code: FlowCategoryCode;
   if (transaction.direction === 'IN') {

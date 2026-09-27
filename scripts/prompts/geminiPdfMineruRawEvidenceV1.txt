@@ -1,0 +1,22 @@
+你正在做银行流水的第一轮原文识别。随请求附上的 PDF 是原件，MinerU 逐页文字是同一份 PDF 的辅助读取结果。逐格照录 PDF 中每一笔实际交易；MinerU 的表格文字可帮助定位行列，但有缺漏或与 PDF 不一致时，以 PDF 可见内容为准。不合并重复展示的账单，不补全、不分类、不修正金额和余额，不把推断写成原文。
+
+只输出严格 JSON：{"rows":[["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]]}。每个可见的实际交易明细行对应一个数组，恰好 16 个字符串，按以下顺序：
+accountNumber,accountName,bankName,transactionTime,transactionDate,direction,amount,balance,transactionType,counterpartyName,counterpartyAccount,counterpartyBank,rawMerchant,rawCounterpartyName,rawDescription,rawDirectionMarker
+
+逐页判断表格朝向、表头和列边界。即使同一笔交易在另一张表中重复出现，也分别照录。金额为 0.00 的交易也要输出。账户清单、查询回单、冻结记录、表头和合计不是交易行。不要跳行，也不要因为输出较长而省略后面的交易。MinerU 没有文字的 PDF 页面仍按 PDF 识别。
+
+前 12 列是最终 CSV 的候选字段，但本轮只填原文能够直接确定的内容：
+- accountNumber、accountName、bankName 是本方账户、户名、出具银行。从所属明细表表头或同一份 PDF 明确的出具银行读取；不要把对方账号当作本方账号。
+- transactionDate 写 YYYY-MM-DD，必须逐行看日期格。transactionTime 仅在该笔印有时分秒时写“YYYY-MM-DD HH:mm:ss”，否则留空；不要用查询日期或邻行日期。
+- direction 为 IN 或 OUT，仅在该行的收入/支出列、正负号或借贷标志含义明确时填写。借贷标志原样另存到 rawDirectionMarker；金额 0.00 时仍要保留该标志。负余额本身不能决定方向。
+- amount 是该行交易金额的绝对值，balance 是该行更新后的余额，均写两位小数；balance 保留负号。不要按相邻余额反算来替代原格数字。
+- transactionType 一律留空，本轮不分类。
+- counterpartyName 仅填明确标作“交易对方名称”“对方户名”等的姓名或单位；counterpartyAccount、counterpartyBank 仅填明确的对方账号、对方开户行。若信用卡表格同时有“交易场所简称”和“对方账户户名”，不要把后者擅自当作商户，也不要覆盖交易场所简称；将两格分别存入下述原文字段。
+
+最后四列保留关键原文，供第二轮使用，不能相互合并：
+- rawMerchant：该行“交易场所简称”“商户名称”“交易场所”格原样照录，包括“支付宝-”“财付通-”等前缀；表格印出的简称即使被截断也不要扩写。
+- rawCounterpartyName：该行“对方账户户名”“交易对方名称”等格原样照录。支付机构的公司名称放在这里，不要替换 rawMerchant。
+- rawDescription：该行“交易描述”“摘要”“用途”“交易类型”格原样照录；仅复制原文，不归类。
+- rawDirectionMarker：该行“借贷”“收付”“收入/支出”等原始标记原样照录，例如 1、2、借、贷、收入、支出。没有则留空。
+
+看不清的单格留空，不从其他交易猜测。只返回 JSON，不输出页码、行号、说明或额外字段。

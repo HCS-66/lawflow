@@ -1,5 +1,6 @@
 import { BaseRule, RuleContext } from './BaseRule';
 import { AnomalyMatch, RuleCategory, SeverityLevel } from '../../types/rules';
+import { summaryForCounterparty } from '../counterpartyIdentity';
 
 export class Rule06_AffiliatedCompanyTransfer extends BaseRule {
   readonly ruleId = 'RULE_AFFILIATED_COMPANY_TRANSFER';
@@ -21,7 +22,7 @@ export class Rule06_AffiliatedCompanyTransfer extends BaseRule {
       if (tx.amount < 20000) return;
 
       const cpName = tx.counterpartyName?.trim() || '';
-      const cpSummary = context.counterpartySummaries[cpName];
+      const cpSummary = summaryForCounterparty(tx, context.counterpartySummaries);
       const isAffiliate = cpSummary?.roleTag?.includes('关联') || cpSummary?.roleTag?.includes('独资');
 
       if (isAffiliate && /货款|服务费|借款|往来|工程款/.test(tx.summary || '')) {

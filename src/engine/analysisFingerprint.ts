@@ -1,7 +1,7 @@
 import { CaseMetadata } from '../types/case';
 import { BankAccount, StandardTransaction } from '../types/transaction';
 
-const ANALYSIS_MODEL_VERSION = '2026-09-preserved-observations-v4';
+const ANALYSIS_MODEL_VERSION = '2026-09-account-priority-identity-v6';
 
 function stableHash(input: string): string {
   let left = 2166136261;
@@ -42,6 +42,7 @@ export function caseAnalysisFingerprint(
       counterpartyAccount: transaction.counterpartyAccount || '',
       counterpartyBank: transaction.counterpartyBank || '',
       summary: transaction.summary,
+      transactionType: transaction.transactionType || '',
       rawText: transaction.rawText || '',
       counterpartyRoleTag: transaction.counterpartyRoleTag || '',
       reviewStatus: transaction.reviewStatus || '',

@@ -6,6 +6,7 @@ import { effectiveCounterpartyName, isJudicialDeduction } from './bilateral';
 import { classifyTransactionFlow } from './flowClassification';
 import { CanonicalTransactionEvent } from './transactionEvents';
 import { businessAccounts } from '../review/recognitionCompleteness';
+import { counterpartyIdentityKey } from './counterpartyIdentity';
 
 function entityKey(prefix: string, value: string): string {
   let left = 2166136261;
@@ -93,12 +94,13 @@ export function buildCaseAnalysisGraph(
   const counterparties = new Map<string, AnalysisCounterpartyEntity>();
   for (const transaction of transactions.filter(item => !item.isInternalTransfer)) {
     const name = effectiveCounterpartyName(transaction);
-    const key = `${transaction.counterpartyAccount || ''}|${name}`;
+    const key = counterpartyIdentityKey(transaction, name);
     const id = entityKey('counterparty', key);
     const entity = counterparties.get(id) || {
       id, kind: 'COUNTERPARTY' as const, name, account: transaction.counterpartyAccount,
       transactionIds: [], incomingTransactionIds: [], outgoingTransactionIds: []
     };
+    entity.aliases = unique([...(entity.aliases || []), name]);
     entity.transactionIds.push(transaction.id);
     if (transaction.direction === 'IN') entity.incomingTransactionIds.push(transaction.id);
     if (transaction.direction === 'OUT') entity.outgoingTransactionIds.push(transaction.id);
@@ -113,7 +115,7 @@ export function buildCaseAnalysisGraph(
     relationships.push({ id: `account_tx_${transaction.id}`, type: 'ACCOUNT_HAS_TRANSACTION', fromEntityId: accountEntityId, toEntityId: transactionEntityId, transactionIds: [transaction.id], amount: transaction.amount });
     if (!transaction.isInternalTransfer) {
       const counterpartyName = effectiveCounterpartyName(transaction);
-      const counterpartyId = entityKey('counterparty', `${transaction.counterpartyAccount || ''}|${counterpartyName}`);
+      const counterpartyId = entityKey('counterparty', counterpartyIdentityKey(transaction, counterpartyName));
       relationships.push({ id: `tx_counterparty_${transaction.id}`, type: 'TRANSACTION_WITH_COUNTERPARTY', fromEntityId: transactionEntityId, toEntityId: counterpartyId, transactionIds: [transaction.id], amount: transaction.amount });
     }
     const classification = classifyTransactionFlow(transaction);
@@ -140,7 +142,7 @@ export function buildCaseAnalysisGraph(
   const judicialDeductions = transactions.filter(isJudicialDeduction).map(transaction => {
     const accountEntityId = accountIdByTransaction.get(transaction.id)!;
     const authorityName = effectiveCounterpartyName(transaction);
-    const authorityEntityId = entityKey('counterparty', `${transaction.counterpartyAccount || ''}|${authorityName}`);
+    const authorityEntityId = entityKey('counterparty', counterpartyIdentityKey(transaction, authorityName));
     const id = `judicial_${transaction.id}`;
     relationships.push({ id: `${id}_account`, type: 'JUDICIAL_DEDUCTION_FROM_ACCOUNT', fromEntityId: accountEntityId, toEntityId: id, transactionIds: [transaction.id], amount: transaction.amount });
     relationships.push({ id: `${id}_authority`, type: 'JUDICIAL_DEDUCTION_TO_AUTHORITY', fromEntityId: id, toEntityId: authorityEntityId, transactionIds: [transaction.id], amount: transaction.amount });

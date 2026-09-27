@@ -1,6 +1,7 @@
 import type { StandardTransaction, BankAccount } from '../types/transaction';
 
-type EvaluatedField = 'accountNumber' | 'transactionTime' | 'transactionDate' | 'direction' | 'amount' | 'balance';
+type EvaluatedField = 'accountNumber' | 'transactionTime' | 'transactionDate' | 'direction' | 'amount' | 'balance'
+  | 'counterpartyAccount' | 'counterpartyName' | 'transactionType';
 export interface RecognitionGroundTruth {
   version: 1;
   status: 'SOURCE_CHECKED';

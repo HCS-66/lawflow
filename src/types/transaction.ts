@@ -108,6 +108,8 @@ export interface StandardTransaction {
   counterpartyName: string;
   counterpartyAccount?: string;
   counterpartyBank?: string;
+  /** Normalized classification; the original description remains in field evidence. */
+  transactionType?: string;
   summary: string; // 摘要 / 附言 / 备注
   rawSourceFile: string;
   /** Stable evidence identity and the extraction run which produced this row. */
@@ -149,6 +151,9 @@ export interface StandardTransaction {
 }
 
 export interface CounterpartySummary {
+  identityKey?: string;
+  aliases?: string[];
+  transactionIds?: string[];
   name: string;
   account?: string;
   totalIn: number; // 转入总额

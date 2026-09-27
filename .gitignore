@@ -30,3 +30,25 @@ scratch/
 *.pdf
 *银行流水*.md
 tmp/
+
+# Generated reviews embed private transactions and source-page references.
+output/
+__pycache__/
+*.pyc
+
+# Local case-specific experiment reports are not published.
+/docs/antigravity-pdf-only-experiment.md
+/docs/first-pass-enforcement-evaluation.md
+/docs/gemini-stage2-verbatim-one-shot.md
+/docs/gemini-stage2-verbatim-stability.md
+/docs/qwen-full-page-images-experiment.md
+/docs/qwen-full-page-rotation-comparison.md
+/docs/qwen-paddle-hard-pages-experiment.md
+/docs/qwen-stage1-verbatim-experiment.md
+/docs/qwen-stage2-one-shot-experiment.md
+/docs/qwen-stage2-prompt-iteration.md
+/docs/recognition-blind-dataset-requirements.md
+/docs/recognition-quality-implementation-progress.md
+/docs/recognition-quality-redesign.md
+/docs/recognition-quality-results.md
+/docs/statement-uncertainty-experiment.md
