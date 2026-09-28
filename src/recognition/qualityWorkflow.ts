@@ -28,6 +28,7 @@ export async function runQualityWorkflow(io: QualityWorkflowIO) {
     const outcomes = await Promise.allSettled(Array.from({ length: Math.min(3, pages.length) }, async () => {
       while (index < pages.length) { check(); await fn(pages[index++]); }
     }));
+    check();
     const error = outcomes.find((r): r is PromiseRejectedResult => r.status === 'rejected'); if (error) throw error.reason;
   };
   const pages = Array.from({ length: io.totalPages }, (_, i) => i + 1);

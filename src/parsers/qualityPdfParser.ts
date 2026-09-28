@@ -42,6 +42,7 @@ export async function parsePdfWithQualityPipeline(file: File, onProgress: (p: Ge
   if (status.revision !== QUALITY_REVISION) throw new Error('识别流程已更新，请刷新网页后重试');
   const renderer = await createPdfPageImageRenderer(file);
   let cacheWarning = false;
+  let resumed = false;
   const warn = () => { if (!cacheWarning) { cacheWarning = true; options.onResumeWarning?.('浏览器未能保存识别证据，请释放存储空间后重试。'); } };
   const base64 = async (blob: Blob): Promise<string> => {
     const bytes = new Uint8Array(await blob.arrayBuffer()); let binary = '';
@@ -76,7 +77,9 @@ export async function parsePdfWithQualityPipeline(file: File, onProgress: (p: Ge
         const expectedModel = ['primary', 'context', 'primaryRecovery'].includes(input.stage) ? status.models?.qwen : status.models?.gemini;
         try { const saved = await options.store.read(key);
           if (saved && saved.promptSHA256 === status.prompts?.[input.stage] && saved.model === expectedModel) {
-            validateQualityResult(input.stage, saved.result); return saved;
+            validateQualityResult(input.stage, saved.result);
+            if (!resumed) { resumed = true; options.onResumeWarning?.('已恢复这个原始文件的识别进度，已完成的步骤会直接复用。'); }
+            return saved;
           }
         } catch { warn(); }
         let reply: ModelReply | undefined;

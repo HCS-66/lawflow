@@ -89,6 +89,7 @@ export const Step1Upload: React.FC<Step1Props> = ({
   const [copiedReport, setCopiedReport] = useState<'TASKS' | 'ANOMALIES' | ''>('');
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const cancelRequestedRef = useRef(false);
   const zeroTransactionFiles = sourceFilesWithoutTransactions(accounts, transactions);
   const sourceTransactionCounts = transactionCountsBySource(transactions);
   const hasTransactions = transactions.length > 0;
@@ -158,6 +159,7 @@ export const Step1Upload: React.FC<Step1Props> = ({
   }, [isProcessing, statusText, progressInfo, importTasks]);
 
   const handleCancelProcessing = () => {
+    cancelRequestedRef.current = true;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
@@ -170,6 +172,7 @@ export const Step1Upload: React.FC<Step1Props> = ({
       setErrorMessage('当前文件仍在处理中，请等待完成或停止后再添加文件。');
       return;
     }
+    cancelRequestedRef.current = false;
     const fileList = Array.from(files);
     if (fileList.length === 0) return;
 
@@ -206,6 +209,7 @@ export const Step1Upload: React.FC<Step1Props> = ({
       });
 
       try {
+        if (cancelRequestedRef.current) throw new DOMException('已停止识别', 'AbortError');
         let importedTransactionCount = 0;
         let importedAccountCount = 0;
         let incompletePages: number[] = [];
@@ -262,6 +266,7 @@ export const Step1Upload: React.FC<Step1Props> = ({
               onResumeWarning: setResumeNotice
             }
           );
+          controller.signal.throwIfAborted();
           let sourceStored = true;
           try {
             // Replace the retained original only after recognition succeeds, so a
@@ -272,6 +277,7 @@ export const Step1Upload: React.FC<Step1Props> = ({
             sourceStorageWarning = true;
             console.warn('Source document storage unavailable; continuing recognition', storageError);
           }
+          controller.signal.throwIfAborted();
           const annotated = attachSourceProvenance(parsedAccounts, parsedTx, source, extractionRun);
           const canonical = normalizeRecognizedData(annotated.accounts, annotated.transactions);
           removePreviousVersion();
@@ -288,6 +294,7 @@ export const Step1Upload: React.FC<Step1Props> = ({
         } else {
           throw new Error('不支持的文件格式');
         }
+        onDataUpdated([...newAccounts], [...newTransactions]);
         updateImportTask(taskId, importedTransactionCount === 0 ? {
           status: 'EMPTY',
           title: `“${file.name}”未发现流水`,
@@ -322,7 +329,7 @@ export const Step1Upload: React.FC<Step1Props> = ({
           accountCount: importedAccountCount
         });
       } catch (err: any) {
-        if (err.name === 'AbortError' || err.message?.includes('停止')) {
+        if (cancelRequestedRef.current || err.name === 'AbortError' || err.message?.includes('停止')) {
           console.log('User cancelled parsing:', file.name);
           updateImportTask(taskId, {
             status: 'CANCELLED',

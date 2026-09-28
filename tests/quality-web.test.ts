@@ -85,3 +85,15 @@ test('server uses Qwen only for transcription and rejects unfinished output', as
   assert.equal(request.messages[0].content[0].text, qualityPrompts.primary.prompt);
   assert.equal(request.reasoning_effort, 'low');
 });
+
+test('user cancellation wins over an earlier network error in another page worker', async () => {
+  const controller = new AbortController();
+  await assert.rejects(runQualityWorkflow({ totalPages: 2, signal: controller.signal, progress() {},
+    preflightImages: async page => {
+      if (page === 1) throw new TypeError('Failed to fetch');
+      controller.abort();
+      return { images: [], metrics: { darkFraction160: 0, darkFraction210: 0, hasPdfText: false } };
+    }, image: async () => '',
+    call: async () => ({ result: { pageKind: 'blank', uprightCandidate: 'uncertain', reason: 'blank' }, finishReason: 'STOP', model: 'test', promptSHA256: 'test' })
+  }), error => error instanceof DOMException && error.name === 'AbortError');
+});
