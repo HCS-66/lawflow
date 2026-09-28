@@ -9,18 +9,22 @@ from experimentGeminiStage2Verbatim import request_all
 from experimentThreePassStatement import read_key
 from experimentPrimaryPages import validate as validate_primary
 from strictModelJson import loads as strict_loads
+from qualityPagePreflight import is_verified_blank
 
 
 def build_sources(root):
     pages, cells, rows = [], {}, {}
     next_cell, next_row = 1, 1
-    for path in sorted(p for p in root.glob('page-*.json') if re.fullmatch(r'page-\d+\.json', p.name)):
+    for path in sorted((p for p in root.glob('page-*.json') if re.fullmatch(r'page-\d+\.json', p.name)),
+                       key=lambda p: int(p.stem.split('-')[1])):
         wrapper = json.loads(path.read_text())
-        if wrapper.get('finishReason') not in ('stop', 'STOP'):
+        if wrapper.get('finishReason') not in ('stop', 'STOP') and not is_verified_blank(wrapper):
             raise ValueError(f'Incomplete source page: {path.name}')
         page_number = wrapper['page']
         raw = wrapper['result']
         validate_primary(raw)
+        if is_verified_blank(wrapper) and raw != {'nearTableText': [], 'tables': []}:
+            raise ValueError('Skipped blank page contains source text')
         page = {'page': page_number, 'h': [], 'tables': []}
         for text in raw['nearTableText']:
             page['h'].append([next_cell, text])

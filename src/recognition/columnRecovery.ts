@@ -1,6 +1,15 @@
 import type { SourceRegistry } from './sourceAssembly';
 import type { MappedTable, ColumnSelector } from './tableMapping';
 
+/** Combined party labels identify a column; they do not authorize guessing its contents. */
+export function combinedPartyColumn(table: MappedTable, registry: SourceRegistry): number | null {
+  if (table.kind !== 'transactions' || !table.groups.length || table.groups.some(g => g.length !== 1)) return null;
+  const columns = new Set(table.ignored.filter(i => i.kind === 'header').flatMap(i => i.r)
+    .flatMap(id => registry.rows[id]?.cells.flatMap((cell, col) =>
+      /^(?:对方|交易对手)(?:账号|帐号)(?:与|及|和|[\/／、])(?:户名|名称|姓名)$/.test(registry.cells[cell].text.replace(/\s/g, '')) ? [col + 1] : []) || []));
+  return columns.size === 1 ? [...columns][0] : null;
+}
+
 /** An omitted mapping can be recovered from a unique literal label, never from values alone. */
 export function recoverDescriptionColumn(table: MappedTable, registry: SourceRegistry): { selector: ColumnSelector; sources: number[]; basis: string } | null {
   if (table.kind !== 'transactions' || table.fields.description || !table.groups.length || table.groups.some(g => g.length !== 1)) return null;

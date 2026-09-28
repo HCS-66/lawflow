@@ -11,6 +11,8 @@ import urllib.request
 
 from experimentThreePassStatement import read_key
 from strictModelJson import loads as strict_loads
+from qualityPagePreflight import blank_wrapper
+from qualityPreflightPlan import load_plan
 
 
 def sha(data):
@@ -93,6 +95,7 @@ def main():
     parser.add_argument('--workers', type=int, default=3)
     parser.add_argument('--model', default='gemini-3.8-flash')
     parser.add_argument('--prompt', type=Path, default=Path('scripts/prompts/geminiIndependentKeysV1.txt'))
+    parser.add_argument('--preflight-plan', type=Path)
     args = parser.parse_args()
     selected = []
     for group in args.pages.split(','):
@@ -108,6 +111,9 @@ def main():
     manifest = {'model': args.model, 'promptSHA256': sha(prompt_bytes), 'pages': selected,
                 'images': {str(p): sha((args.images / f'upright-{p:02}.jpg').read_bytes()) for p in selected},
                 'temperature': 0, 'thinkingLevel': 'low', 'maxOutputTokens': 24000, 'primaryAnswersIncluded': False}
+    preflight = load_plan(args.preflight_plan, args.images) if args.preflight_plan else {}
+    if args.preflight_plan:
+        manifest['preflightSHA256'] = sha(args.preflight_plan.read_bytes())
     manifest_path = args.output / 'input-manifest.json'
     if manifest_path.exists() and json.loads(manifest_path.read_text()) != manifest:
         raise ValueError('Output directory belongs to different inputs/configuration')
@@ -116,6 +122,9 @@ def main():
 
     def run(page):
         output = args.output / f'page-{page:02}.json'
+        if preflight.get(page, {}).get('decision', {}).get('blankConfirmed'):
+            save(output, blank_wrapper(preflight[page], independent=True))
+            return {'page': page, 'rows': 0, 'skippedConfirmedBlank': True}
         if output.exists():
             existing = json.loads(output.read_text())
             if existing.get('finishReason') == 'STOP':
@@ -134,6 +143,11 @@ def main():
                 validate(result)
                 response['result'] = result
                 response['page'] = page
+                if preflight.get(page, {}).get('decision', {}).get('orientationUncertain'):
+                    response['preflightOrientationUncertain'] = True
+                    if result['rows']:
+                        result['coverage'] = 'uncertain'
+                        result['pageIssues'].append('页面预检无法确定正文方向，需确认页面内容完整。')
                 save(output, response)
                 stats = {'page': page, 'rows': len(result['rows']), 'issues': sum(len(r['issues']) for r in result['rows']),
                          'pageIssues': len(result['pageIssues']), 'seconds': response['seconds']}
@@ -166,6 +180,8 @@ def main():
                 print(json.dumps(failure), flush=True)
     save(args.output / 'run-summary.json', {'pages': sorted(results, key=lambda p: p['page']),
                                           'complete': all('error' not in r for r in results)})
+    if any('error' in r for r in results):
+        raise SystemExit(1)
 
 
 if __name__ == '__main__':

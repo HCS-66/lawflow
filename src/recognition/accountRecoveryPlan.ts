@@ -22,7 +22,11 @@ export function planAccountRecovery(issues: AssemblyIssue[], registry: SourceReg
       add(Number(page), 'ACCOUNT_INVENTORY_SUPPORTS_DISPUTED_OWNER');
     }
   }
-  const all = [...reasons].map(([page, values]) => ({ page, reasons: [...values] })).sort((a, b) => a.page - b.page);
+  const all = [...reasons].map(([page, values]) => ({ page, reasons: [...values] })).sort((a, b) => {
+    const direct = (item: typeof a) => item.reasons.some(reason => reason !== 'ACCOUNT_INVENTORY_SUPPORTS_DISPUTED_OWNER');
+    return Number(direct(b)) - Number(direct(a)) || a.page - b.page;
+  });
   return { version: 1, mode: 'FULL_PAGE_OWNER_ACCOUNTS', standardAnswersRead: false,
-    selected: all.slice(0, maxPages), deferred: all.slice(maxPages), complete: all.length <= maxPages };
+    selected: all.slice(0, maxPages).sort((a, b) => a.page - b.page),
+    deferred: all.slice(maxPages).sort((a, b) => a.page - b.page), complete: all.length <= maxPages };
 }

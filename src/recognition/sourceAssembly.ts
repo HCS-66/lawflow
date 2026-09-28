@@ -32,7 +32,7 @@ export interface AssembledRow {
 }
 export interface AssemblyResult { rows: AssembledRow[]; issues: AssemblyIssue[]; complete: boolean }
 const TYPES = new Set(['账户转账', '存款结息', '手续费', '工资收入', '司法扣划', '保险支出', '贷款放款',
-  '贷款还款', '信用卡还款', '消费', '退款', '缴费', '第三方支付', '分期', '分期转换', '分期退款', '费用减免', '违约金', '透支利息']);
+  '贷款还款', '信用卡还款', '消费', '退款', '缴费', '第三方支付', '分期', '分期转换', '分期退款', '费用减免', '违约金', '透支利息', '现金存入', '现金支取']);
 const KEY_FIELDS = new Set([0, 5, 6, 7, 10]);
 const EMPTY = /^(?:\s*|[（(]空[）)]|无|--?|—|N\/A|null)$/i;
 
@@ -173,7 +173,7 @@ export function assembleFromSources(plan: AssemblyPlan, registry: SourceRegistry
     const dates = fields[3].map(s => dateFromSource(s.text)).filter((s): s is string => Boolean(s));
     const times = fields[3].map(s => timeFromSource(s.text)).filter((s): s is string => Boolean(s));
     const chosenDate = dates[0] || values[4];
-    values[3] = chosenDate ? chosenDate + (times[0] ? ` ${times[0]}` : '') : '';
+    values[3] = chosenDate && times[0] ? `${chosenDate} ${times[0]}` : '';
     if (new Set(dates).size > 1 || new Set(times).size > 1) add('TIME_SOURCE_CONFLICT', 3, [number], item.r, fields[3].map(s => s.id), '同笔交易的日期或时分秒来源不一致');
     if (fields[4].some(s => s.normalized === null)) add('PARTIAL_DATE', 4, [number], item.r, fields[4].map(s => s.id), '原文日期不完整或无效');
     values[8] = TYPES.has(item.t) ? item.t : '';

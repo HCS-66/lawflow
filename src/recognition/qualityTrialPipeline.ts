@@ -6,15 +6,23 @@ import { applyFocusedAccountRecovery, type FocusedAccounts } from './accountReco
 import { assessAccountInventory } from './accountInventoryBinding';
 import { findUnmergedViewOverlaps } from './unmergedViews';
 import { recoverPrintedOwnerPrefixes } from './printedOwnerPrefixes';
+import { semanticText } from './semanticText';
+import { collectAccountIssuers } from './accountIssuerEvidence';
+import { recoverSignedIncome } from './signedAmountDirection';
+import { printedTransactionType } from './printedTransactionType';
+import { applyCriticalFieldRecovery } from './criticalFieldRecovery';
 
 /** Experimental pipeline; explicit scope is supplied by the document inventory, not inferred from an account prefix. */
 export function runQualityTrial(mapping: TableMappingPlan, registry: SourceRegistry,
-  originalIndependent: Record<number, IndependentPage>, options: { singleIssuerDocument: boolean; issuerBankName?: string }, accountRecovery: Record<number, FocusedAccounts> = {}) {
+  originalIndependent: Record<number, IndependentPage>, options: { singleIssuerDocument: boolean; issuerBankName?: string }, accountRecovery: Record<number, FocusedAccounts> = {},
+  criticalRereads: Record<number, IndependentPage> = {}) {
   const materialized = materializeTableMapping(mapping, registry);
   const rows = structuredClone(materialized.rows);
-  const recovery = applyFocusedAccountRecovery(rows, materialized.metadata, registry, originalIndependent, accountRecovery);
+  const criticalRecovery = applyCriticalFieldRecovery(rows, registry, originalIndependent, criticalRereads);
+  const recovery = applyFocusedAccountRecovery(rows, materialized.metadata, registry, criticalRecovery.pages, accountRecovery);
   const independent = recovery.pages;
   const transformations: Array<{ observation: number; field: number; before: string; after: string; basis: string; sources: string[] }> = [];
+  const typeUncertainties: number[] = [];
   const change = (i: number, field: number, value: string, basis: string, sources: string[]) => {
     if (rows[i].values[field] === value) return;
     transformations.push({ observation: i + 1, field, before: rows[i].values[field], after: value, basis, sources });
@@ -33,6 +41,10 @@ export function runQualityTrial(mapping: TableMappingPlan, registry: SourceRegis
     change(i, 5, signed[0].text.trim()[0] === '-' ? 'OUT' : 'IN', 'EXPLICIT_SIGN_ON_TRANSACTION_AMOUNT', signed.map(s => `cell:${s.id}`));
     row.fields[5] = signed;
   });
+  for (const i of recoverSignedIncome(rows, mapping, registry, independent)) {
+    change(i, 5, 'IN', 'SIGNED_DEPOSIT_COLUMN_WITH_INDEPENDENT_INCOME', rows[i].fields[6].map(s => `cell:${s.id}`));
+    rows[i].fields[5] = rows[i].fields[6].map(s => ({ ...s, normalized: 'IN' }));
+  }
   for (const table of mapping.tables) {
     const headers = table.ignored.filter(item => item.kind === 'header').flatMap(item => item.r).map(id => registry.rows[id]);
     const columns = new Set(headers.flatMap(header => header.cells.flatMap((id, col) =>
@@ -86,6 +98,7 @@ export function runQualityTrial(mapping: TableMappingPlan, registry: SourceRegis
     }
   }
   const inventory = new Map<string, string[]>();
+  const accountIssuers = collectAccountIssuers(registry, independent);
   for (const [page, reading] of Object.entries(independent)) if (['account_info', 'document'].includes(reading.pageType)) {
     for (const identifier of reading.ownerIdentifiers || []) if (identifier.role === 'account' && /^\d{8,32}$/.test(identifier.value)) {
       inventory.set(identifier.value, [...(inventory.get(identifier.value) || []), `independent:p${page}:ownerAccount`]);
@@ -126,6 +139,11 @@ export function runQualityTrial(mapping: TableMappingPlan, registry: SourceRegis
   rows.forEach((row, i) => {
     const context = materialized.metadata[i];
     if ((!row.values[2] || /^(?:商业银行|商业银行股份有限公司)$/.test(row.values[2])) && issuer) change(i, 2, issuer, 'EXPLICIT_ISSUER_WITH_SINGLE_BANK_DOCUMENT_SCOPE', issuerSources);
+    const exactIssuers = accountIssuers.get(row.values[0]);
+    if ((!row.values[2] || /^(?:商业银行|商业银行股份有限公司)$/.test(row.values[2])) && exactIssuers?.size === 1) {
+      const [bank, sources] = [...exactIssuers][0];
+      change(i, 2, bank, 'EXACT_ACCOUNT_WITH_PRINTED_AND_INDEPENDENT_ISSUER', sources);
+    }
     const ownerNames = names.get(row.values[0]);
     if (!row.values[1] && ownerNames?.size === 1) change(i, 1, [...ownerNames.keys()][0], 'UNIQUE_NAME_FOR_EXACT_ACCOUNT', [...ownerNames.values()][0].map(n => `observation:${n + 1}:accountName`));
     const description = context.description;
@@ -133,7 +151,8 @@ export function runQualityTrial(mapping: TableMappingPlan, registry: SourceRegis
     const printedTypes: Record<string, string> = { '费用': '手续费', '手续费': '手续费', '卡年费': '手续费', '小额费': '手续费',
       '汇费': '手续费', '短信服务': '手续费', '短信服务费': '手续费', '自动还款': '信用卡还款', '人民币自动转帐还款': '信用卡还款', '年费减免': '费用减免',
       '减免年费': '费用减免', '违约金': '违约金', '透支利息': '透支利息', '退款': '退款', '缴费': '缴费',
-      '分期付款退货': '分期退款', '网络查控系统司法扣划': '司法扣划', '强制扣划': '司法扣划', '扣划': '司法扣划' };
+      '分期付款退货': '分期退款', '网络查控系统司法扣划': '司法扣划', '法院扣划': '司法扣划', '司法扣划': '司法扣划',
+      '法院网络扣划': '司法扣划', '强制扣划': '司法扣划', '扣划': '司法扣划' };
     if (printedTypes[description]) change(i, 8, printedTypes[description], 'EXPLICIT_DESCRIPTION_DICTIONARY_V1', row.fields[8].map(s => `cell:${s.id}`));
     if (context.accountKind === 'deposit' && /^(?:利息|结息|支付利息|利息收入|入息)$/.test(description)) change(i, 8, '存款结息', 'PRINTED_DEPOSIT_INTEREST', row.fields[8].map(s => `cell:${s.id}`));
     if (context.accountKind === 'deposit' && description === '快捷支付') change(i, 8, '第三方支付', 'PRINTED_DEPOSIT_QUICK_PAYMENT', row.fields[8].map(s => `cell:${s.id}`));
@@ -143,13 +162,19 @@ export function runQualityTrial(mapping: TableMappingPlan, registry: SourceRegis
       change(i, 8, '贷款还款', 'PRINTED_LOAN_REPAYMENT_DESCRIPTION_WITH_ACCOUNT_CONTEXT', row.fields[8].map(s => `cell:${s.id}`));
     }
     if (/个人贷款结息/.test(description) && row.values[5] === 'OUT') change(i, 8, '贷款还款', 'PRINTED_LOAN_INTEREST_PAYMENT', row.fields[8].map(s => `cell:${s.id}`));
-    if (row.values[5] === 'OUT' && /保险(?:股份)?有限公司/.test(row.values[9])) change(i, 8, '保险支出', 'PRINTED_INSURER_COUNTERPARTY', row.fields[9].map(s => `cell:${s.id}`));
+    if (row.values[5] === 'OUT' && /保险(?:股份)?有限公司/.test(semanticText(row.values[9]))) change(i, 8, '保险支出', 'PRINTED_INSURER_COUNTERPARTY', row.fields[9].map(s => `cell:${s.id}`));
     if (description === '个人贷款' && ['IN', 'OUT'].includes(row.values[5])) change(i, 8, row.values[5] === 'IN' ? '贷款放款' : '贷款还款', 'PRINTED_LOAN_WITH_DIRECTION', row.fields[8].map(s => `cell:${s.id}`));
     if (/^(?:账单分期|普通消费转分期)$/.test(description)) change(i, 8, '分期转换', 'PRINTED_INSTALLMENT_CONVERSION', row.fields[8].map(s => `cell:${s.id}`));
     if (/^分期付款(?:到期扣收|利息)/.test(description)) change(i, 8, '分期', 'PRINTED_INSTALLMENT_PAYMENT', row.fields[8].map(s => `cell:${s.id}`));
     if (/消费/.test(description) && !/转分期|利息/.test(description)) change(i, 8, '消费', 'PRINTED_PURCHASE', row.fields[8].map(s => `cell:${s.id}`));
     if (conversionRows.has(i)) change(i, 8, '分期转换', 'MATCHED_PRINTED_INSTALLMENT_CONVERSION_SEQUENCE', rows.slice(Math.max(0, i - 1), i + 2).flatMap(r => r.fields[8].map(s => `cell:${s.id}`)));
     if (conversionInterestRows.has(i)) change(i, 8, '分期', 'INTEREST_IN_PRINTED_INSTALLMENT_CONVERSION_SEQUENCE', rows.slice(i - 2, i + 1).flatMap(r => r.fields[8].map(s => `cell:${s.id}`)));
+    const purposeFields = [...row.fields[8], ...row.fields[9]];
+    const printedType = printedTransactionType(description, purposeFields.map(s => s.text), row.values[5], context.accountKind);
+    if (printedType && !(printedType.requiresReview && !printedType.type && row.values[8])) {
+      change(i, 8, printedType.type, printedType.basis, purposeFields.map(s => `cell:${s.id}`));
+    }
+    if (printedType?.requiresReview) typeUncertainties.push(i);
     const table = mapping.tables.find(t => t.page === context.page && t.table === context.table)!;
     if (['消费', '退款', '缴费'].includes(row.values[8])) {
       const headers = table.ignored.filter(s => s.kind === 'header').flatMap(s => s.r).map(id => registry.rows[id]);
@@ -168,7 +193,7 @@ export function runQualityTrial(mapping: TableMappingPlan, registry: SourceRegis
         }
       }
     }
-    const internalInterestName = /^(?:银行卡)?存款应(?:计)?付利息0*$/.test(row.values[9]);
+    const internalInterestName = /^(?:银行卡)?存款应(?:计)?付利息0*$/.test(semanticText(row.values[9]));
     if (combinedCounterpartyTables.has(`${context.page}:${context.table}`) && !internalInterestName && !row.values[10]) {
       const combined = row.values[9].match(/^([^\d]+)(\d{4})$/);
       if (combined) {
@@ -179,8 +204,10 @@ export function runQualityTrial(mapping: TableMappingPlan, registry: SourceRegis
     }
     const service = ['存款结息', '手续费', '分期', '分期转换', '费用减免', '违约金', '透支利息'].includes(row.values[8]);
     if (service && (!row.values[10] || row.values[10] === row.values[0]) && (!row.values[9] || internalInterestName || /^(?:其他|分行营业室|汇总分期|\d+\/\d+\s.*)$/.test(row.values[9])) && row.values[2]) {
-      change(i, 9, row.values[2], 'ISSUER_AS_SERVICE_COUNTERPARTY_WITH_NO_OTHER_PRINTED_PARTY', issuerSources);
-      if (row.values[8] !== '存款结息' && !row.values[11]) change(i, 11, row.values[2], 'ISSUER_AS_SERVICE_COUNTERPARTY_BANK', issuerSources);
+      const serviceSources = [...row.fields[2].map(c => `cell:${c.id}`), ...(exactIssuers?.get(row.values[2]) || []),
+        ...(issuer === row.values[2] ? issuerSources : [])];
+      change(i, 9, row.values[2], 'ISSUER_AS_SERVICE_COUNTERPARTY_WITH_NO_OTHER_PRINTED_PARTY', serviceSources);
+      if (row.values[8] !== '存款结息' && !row.values[11]) change(i, 11, row.values[2], 'ISSUER_AS_SERVICE_COUNTERPARTY_BANK', serviceSources);
     }
   });
   const codeMaps = Object.fromEntries(mapping.tables.map(t => [`${t.page}:${t.table}`, t.directionCodes || {}]));
@@ -223,6 +250,17 @@ export function runQualityTrial(mapping: TableMappingPlan, registry: SourceRegis
   const pairForObservation = new Map(comparison.pairs.map(p => [p.outputRow, p]));
   const resolved: Array<{ code: string; field: string | null; event: number; observations: number[]; basis: string }> = [];
   const pending: AssemblyIssue[] = [];
+  for (const i of typeUncertainties) pending.push({ id: `REPAYMENT_TYPE_${i + 1}`, code: 'REPAYMENT_KIND_UNRESOLVED',
+    field: 'transactionType', severity: 'REQUIRED', outputRows: [eventForObservation.get(i + 1)!], sourceRows: rows[i].sourceRows,
+    sourceCells: [...rows[i].fields[8], ...rows[i].fields[9]].map(s => s.id),
+    message: '同笔原文出现还款，但未明确贷款或信用卡；已保留可读摘要类别，请确认具体用途' });
+  rows.forEach((row, i) => {
+    if (/^(?:银行卡)?存款应(?:计)?付利息0*$/.test(semanticText(row.values[9])) && !row.values[2]) {
+      pending.push({ id: `ISSUER_PARTY_${i + 1}`, code: 'SERVICE_ISSUER_UNCONFIRMED', field: 'counterpartyName', severity: 'REQUIRED',
+        outputRows: [eventForObservation.get(i + 1)!], sourceRows: row.sourceRows, sourceCells: row.fields[9].map(c => c.id),
+        message: '原文为银行内部利息科目，尚未确认出具银行，不能据此认定实际交易对方' });
+    }
+  });
   for (const [i, conflict] of accountInventory.unresolved.entries()) {
     pending.push({ id: `ACCOUNT_INVENTORY_${i + 1}`, code: 'UNCONFIRMED_ACCOUNT_INVENTORY_BINDING', field: 'accountNumber', severity: 'REQUIRED',
       outputRows: [...new Set(conflict.observations.map(n => eventForObservation.get(n)!))], sourceRows: conflict.sourceRows, sourceCells: [],
@@ -243,6 +281,15 @@ export function runQualityTrial(mapping: TableMappingPlan, registry: SourceRegis
     return row.values[8] === '存款结息' && row.values[9] === row.values[2] && Boolean(row.values[2])
       && row.fields[10].some(s => /^[?？]$/.test(s.text.trim())) && Boolean(pair && /^[?？]$/.test(pair.values[10]));
   };
+  const confirmedCashWithoutCounterparty = (n: number) => {
+    const row = rows[n - 1], pair = pairForObservation.get(n);
+    if (!['现金存入', '现金支取'].includes(row.values[8]) || row.values[9] || row.values[10] || !pair
+      || pair.values[9] || pair.values[10]) return false;
+    const other = independent[pair.page]?.rows.find(r => r.row === pair.independentRow);
+    if (!other || other.issues.some(i => ['counterpartyName', 'counterpartyAccount'].includes(i.field))) return false;
+    // Require actual selected empty source cells, not merely a model's missing mapping.
+    return [9, 10].every(f => row.fields[f].length > 0 && row.fields[f].every(s => /^(?:\s*|--?|—|无)$/.test(s.text.trim())));
+  };
   for (const issue of materialized.issues) {
     if (issue.field === 'bankName' && issue.code === 'INVALID_SOURCE_FRAGMENT' && issuer && issuerValues.has(issuer)
       && issue.outputRows.every(n => rows[n - 1].values[2] === issuer)) {
@@ -262,6 +309,11 @@ export function runQualityTrial(mapping: TableMappingPlan, registry: SourceRegis
       const own = rows[n - 1].values, pair = pairForObservation.get(n);
       return own[9] || own[10];
     })) continue;
+    if (issue.code === 'COUNTERPARTY_IDENTITY_MISSING' && issue.outputRows.every(confirmedCashWithoutCounterparty)) {
+      resolved.push({ code: issue.code, field: issue.field, event: eventForObservation.get(issue.outputRows[0])!, observations: issue.outputRows,
+        basis: 'Explicit cash transaction; selected party cells and independent reading both blank without identity uncertainty' });
+      continue;
+    }
     push(issue);
   }
   consolidation.events.forEach((event, eventIndex) => {
@@ -315,6 +367,7 @@ export function runQualityTrial(mapping: TableMappingPlan, registry: SourceRegis
       && registry.pages.every(p => independent[p]?.coverage === 'complete'),
     observations: rows, metadata: materialized.metadata, transformations, comparison, consolidation, rejectedIssuerEvidence, recoveredOwnerPrefixes,
     accountRecovery: { applied: recovery.applied, skipped: recovery.skipped }, accountBindings, accountInventoryConflicts: accountInventory.unresolved,
+    criticalFieldRecovery: { applied: criticalRecovery.applied },
     rows: consolidation.events.map(e => ({ id: e.id, values: e.values,
       sourceObservationIds: e.observations.flatMap(n => rows[n].sourceRows.map(r => `source:${r}`)),
       observationNumbers: e.observations.map(n => n + 1) })),

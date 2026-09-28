@@ -12,3 +12,16 @@ test('recovery planner selects disputed printed pages and inventory, never all r
   assert.deepEqual(planAccountRecovery([{ ...issue, field: 'amount' }], registry, pages).selected, []);
   assert.deepEqual(planAccountRecovery([issue], registry, pages, [1, 2]).selected, []);
 });
+
+test('early inventory pages cannot exhaust the budget before a disputed late page', () => {
+  const registry: SourceRegistry = { pages: [...Array.from({ length: 14 }, (_, i) => i + 1), 128], rows: {}, cells: {} };
+  const issue: AssemblyIssue = { id: 'late', code: 'CONFLICT', field: 'accountNumber', severity: 'REQUIRED',
+    outputRows: [1], sourceRows: [], sourceCells: [], sourcePages: [128], message: 'Disputed account' };
+  const pages = Object.fromEntries(Array.from({ length: 14 }, (_, i) => [i + 1, {
+    pageType: 'account_info', coverage: 'complete', pageIssues: [], rows: [],
+    ownerIdentifiers: [{ role: 'account', value: '1234567890123456' }] }]));
+  const plan = planAccountRecovery([issue], registry, pages);
+  assert.equal(plan.selected.length, 12);
+  assert.ok(plan.selected.some(p => p.page === 128));
+  assert.equal(plan.complete, false);
+});

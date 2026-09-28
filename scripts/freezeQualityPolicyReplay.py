@@ -31,6 +31,9 @@ def main():
         if (source / 'recovery').exists():
             (root / 'recovery').symlink_to((source / 'recovery').resolve(), target_is_directory=True)
             scope += ['--account-recovery-dir', str(source / 'recovery')]
+        if (source / 'field-recovery').exists():
+            (root / 'field-recovery').symlink_to((source / 'field-recovery').resolve(), target_is_directory=True)
+            scope += ['--field-recovery-dir', str(source / 'field-recovery')]
         with (root / 'execution.log').open('w') as log:
             subprocess.run(['node_modules/.bin/tsx', 'scripts/runQualityTrial.ts', str(source / 'mapping'),
                 str(source / 'independent'), str(root / 'final'), *scope], stdout=log, stderr=subprocess.STDOUT, check=True)

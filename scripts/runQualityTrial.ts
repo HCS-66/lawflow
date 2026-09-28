@@ -18,7 +18,15 @@ for (const page of registry.pages) {
   if (existsSync(file)) {
     const bytes = readFileSync(file); inputs[file] = createHash('sha256').update(bytes).digest('hex');
     const wrapper = JSON.parse(bytes.toString());
-    if (wrapper.finishReason === 'STOP') independent[page] = wrapper.result;
+    const blank = wrapper.finishReason === 'SKIPPED_BLANK'
+      && wrapper.preflight?.policyVersion === 'FULL_PAGE_PREFLIGHT_V1'
+      && wrapper.preflight.blankConfirmed === true && wrapper.preflight.pixelBlank === true
+      && wrapper.preflight.hasPdfText === false && wrapper.preflight.modelPageKind === 'blank'
+      && /^[a-f0-9]{64}$/.test(wrapper.preflight.imageSHA256 || '')
+      && /^[a-f0-9]{64}$/.test(wrapper.preflight.responseSHA256 || '')
+      && wrapper.result?.pageType === 'blank' && wrapper.result.coverage === 'complete'
+      && Array.isArray(wrapper.result.rows) && wrapper.result.rows.length === 0;
+    if (wrapper.finishReason === 'STOP' || blank) independent[page] = wrapper.result;
   }
 }
 const singleIssuerDocument = process.argv.includes('--single-issuer');
@@ -36,12 +44,23 @@ if (recoveryArg >= 0) {
     if (response.finishReason === 'STOP') accountRecovery[page] = response.result;
   }
 }
-const result = runQualityTrial(mapping, registry, independent, { singleIssuerDocument, issuerBankName }, accountRecovery);
+const criticalRereads: Record<number, IndependentPage> = {};
+const fieldRecoveryArg = process.argv.indexOf('--field-recovery-dir');
+if (fieldRecoveryArg >= 0) {
+  for (const page of registry.pages) {
+    const file = resolve(process.argv[fieldRecoveryArg + 1], `page-${String(page).padStart(2, '0')}.json`);
+    if (!existsSync(file)) continue;
+    const bytes = readFileSync(file); inputs[file] = createHash('sha256').update(bytes).digest('hex');
+    const response = JSON.parse(bytes.toString());
+    if (response.finishReason === 'STOP' && response.page === page) criticalRereads[page] = response.result;
+  }
+}
+const result = runQualityTrial(mapping, registry, independent, { singleIssuerDocument, issuerBankName }, accountRecovery, criticalRereads);
 mkdirSync(outputDir, { recursive: true });
 const snapshot = resolve(outputDir, 'policy-snapshot');
 mkdirSync(snapshot);
 const policies: Record<string, string> = {};
-for (const name of ['sourceAssembly', 'sourceFragments', 'rowGrouping', 'columnRecovery', 'tableMapping', 'independentComparison', 'observationConsolidation', 'unmergedViews', 'accountRecovery', 'accountInventoryBinding', 'printedOwnerPrefixes', 'qualityTrialPipeline', 'acceptanceEvaluation']) {
+for (const name of ['sourceAssembly', 'sourceFragments', 'semanticText', 'accountIssuerEvidence', 'rowGrouping', 'columnRecovery', 'tableMapping', 'signedAmountDirection', 'printedTransactionType', 'criticalFieldRecovery', 'independentComparison', 'observationConsolidation', 'unmergedViews', 'accountRecovery', 'accountInventoryBinding', 'printedOwnerPrefixes', 'qualityTrialPipeline', 'acceptanceEvaluation']) {
   const bytes = readFileSync(resolve('src/recognition', `${name}.ts`));
   writeFileSync(resolve(snapshot, `${name}.ts`), bytes);
   policies[name] = createHash('sha256').update(bytes).digest('hex');

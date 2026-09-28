@@ -11,6 +11,8 @@ import urllib.error
 from experimentQwenPageImages import request_page
 from experimentIndependentKeys import save
 from strictModelJson import loads as strict_loads
+from qualityPagePreflight import blank_wrapper
+from qualityPreflightPlan import load_plan
 
 
 def validate(result):
@@ -29,16 +31,28 @@ def validate(result):
             raise ValueError('Invalid row/cell')
 
 
+def normalize_response(result, context_only=False):
+    # Only a task explicitly forbidden to transcribe transactions may omit empty tables.
+    if context_only and isinstance(result, dict) and set(result) == {'nearTableText'}:
+        result = {**result, 'tables': []}
+    validate(result)
+    if context_only and result['tables']:
+        raise ValueError('Context-only response contains transaction tables')
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--images', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--pages', type=int, required=True)
     parser.add_argument('--selected-pages', help='Comma-separated pages for a bounded recovery run')
+    parser.add_argument('--preflight-plan', type=Path)
     parser.add_argument('--workers', type=int, default=3)
     parser.add_argument('--prompt', type=Path, default=Path('scripts/prompts/qwenPagewiseVerbatimV3.txt'))
     parser.add_argument('--model', default='qwen3.8-flash')
     parser.add_argument('--base-url', default='https://dashscope.aliyuncs.com/compatible-mode/v1')
+    parser.add_argument('--context-only', action='store_true', help='Headings only; reject transaction tables')
     args = parser.parse_args()
     key = sys.stdin.readline().strip().replace('\\_', '_')
     if not key:
@@ -51,6 +65,11 @@ def main():
     manifest = {'model': args.model, 'promptSHA256': digest(prompt), 'pages': selected,
                 'images': {str(p): digest((args.images / f'upright-{p:02}.jpg').read_bytes()) for p in selected},
                 'temperature': 0, 'reasoningEffort': 'low', 'maxTokens': 16000, 'standardAnswersIncluded': False}
+    if args.context_only:
+        manifest['contextOnly'] = True
+    preflight = load_plan(args.preflight_plan, args.images) if args.preflight_plan else {}
+    if args.preflight_plan:
+        manifest['preflightSHA256'] = digest(args.preflight_plan.read_bytes())
     args.output.mkdir(parents=True, exist_ok=True)
     manifest_path = args.output / 'input-manifest.json'
     if manifest_path.exists() and json.loads(manifest_path.read_text()) != manifest:
@@ -59,11 +78,19 @@ def main():
 
     def run(page):
         path = args.output / f'page-{page:02}.json'
+        if preflight.get(page, {}).get('decision', {}).get('blankConfirmed'):
+            save(path, blank_wrapper(preflight[page]))
+            return {'page': page, 'rows': 0, 'skippedConfirmedBlank': True}
         if path.exists():
             existing = json.loads(path.read_text())
             if existing.get('finishReason') == 'stop':
                 try:
-                    validate(existing['result'])
+                    normalized = normalize_response(existing['result'], args.context_only)
+                    if normalized != existing['result']:
+                        existing['originalResult'] = existing['result']
+                        existing['result'] = normalized
+                        existing['normalization'] = 'CONTEXT_ONLY_MISSING_EMPTY_TABLES'
+                        save(path, existing)
                     return {'page': page, 'cached': True}
                 except ValueError:
                     path.rename(args.output / f'page-{page:02}-invalid-cache-{int(time.time() * 1000)}.json')
@@ -76,8 +103,7 @@ def main():
                 choice = response['choices'][0]
                 if choice.get('finish_reason') != 'stop':
                     raise ValueError('Response did not finish normally')
-                result = strict_loads(choice['message']['content'])
-                validate(result)
+                result = normalize_response(strict_loads(choice['message']['content']), args.context_only)
                 seconds = round(time.monotonic() - started, 2)
                 save(path, {'page': page, 'model': response.get('model'), 'finishReason': 'stop',
                             'usage': response.get('usage'), 'seconds': seconds, 'result': result})
