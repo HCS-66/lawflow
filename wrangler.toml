@@ -24,5 +24,3 @@ pages_build_output_dir = "dist"
 # Cloudflare Workers AI Binding (Optional for serverless LLM)
 # [ai]
 # binding = "AI"
-[build]
-command = "npm run build"
