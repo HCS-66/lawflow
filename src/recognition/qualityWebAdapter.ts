@@ -1,6 +1,8 @@
 import type { BankAccount, StandardTransaction, TransactionEvidenceField, EvidenceReviewIssue } from '../types/transaction';
 import { STATEMENT_COLUMNS, type SourceRegistry } from './sourceAssembly';
 import type { QualityDeliveryInput } from '../review/qualityDelivery';
+import type { TableMappingPlan } from './tableMapping';
+import { chronologicalTransactions } from '../utils/transactionSequence';
 
 export const QUALITY_EXTRACTION = 'QWEN_GEMINI_QUALITY' as const;
 export function summarizeQualityAccounts(transactions: StandardTransaction[], originals: BankAccount[]): BankAccount[] {
@@ -14,7 +16,7 @@ export function summarizeQualityAccounts(transactions: StandardTransaction[], or
     const original = originals.find(a => a.accountNumber === first.accountNumber && (a.sourceDocumentId && first.sourceDocumentId
       ? a.sourceDocumentId === first.sourceDocumentId : a.fileName === first.rawSourceFile));
     const dates = rows.map(r => r.transactionDate).filter(Boolean).sort();
-    const ordered = [...rows].sort((a, b) => a.transactionDate.localeCompare(b.transactionDate) || (a.rawPageNumber || 0) - (b.rawPageNumber || 0) || (a.rawRowIndex || 0) - (b.rawRowIndex || 0));
+    const ordered = chronologicalTransactions(rows);
     const total = (direction: string) => rows.filter(r => r.direction === direction).reduce((sum, r) => sum + Math.round(r.amount * 100), 0) / 100;
     const totalIn = total('IN'), totalOut = total('OUT');
     const balanceAvailable = rows.every(r => r.balanceAvailable !== false && r.direction !== 'UNKNOWN');
@@ -36,15 +38,18 @@ export function summarizeQualityAccounts(transactions: StandardTransaction[], or
   return accounts;
 }
 
-export function qualityToWeb(result: QualityDeliveryInput, registry: SourceRegistry, fileName: string, totalPages: number) {
+export function qualityToWeb(result: QualityDeliveryInput, registry: SourceRegistry, fileName: string, totalPages: number, mapping?: TableMappingPlan) {
   const run = crypto.randomUUID();
   const transactions: StandardTransaction[] = result.rows.map((row, index) => {
     const [accountNumber, accountName, bankName, transactionTime, transactionDate, direction, amount, balance, transactionType, counterpartyName, counterpartyAccount, counterpartyBank] = row.values;
     const sources = row.sourceObservationIds.filter(s => s.startsWith('source:')).map(s => registry.rows[s.slice(7)]).filter(Boolean);
+    const kinds = new Set(sources.map(s => mapping?.tables.find(t => t.page === s.page && t.table === s.table)?.accountKind));
+    const sourceAccountKind = kinds.size === 1 ? [...kinds][0] : undefined;
     const pending = result.pending.filter(i => i.severity !== 'ADVISORY' && i.outputRows.includes(index + 1));
     const requiredFields = [...new Set(pending.flatMap(i => i.field ? [i.field] : [...STATEMENT_COLUMNS]))] as TransactionEvidenceField[];
     const transaction: StandardTransaction = {
       id: `${run}:${row.id}`, recognitionPolicy: 'EVIDENCE_ONLY_V1', extractionMethod: QUALITY_EXTRACTION,
+      sourceAccountKind,
       accountNumber, accountName, bankName, transactionTime, transactionDate, direction: direction === 'IN' || direction === 'OUT' ? direction : 'UNKNOWN',
       amount: amount === '' ? 0 : Number(amount), balance: balance === '' ? 0 : Number(balance), balanceAvailable: balance !== '',
       transactionType, counterpartyName, counterpartyAccount, counterpartyBank, summary: '', rawSourceFile: fileName,

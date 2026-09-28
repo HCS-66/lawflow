@@ -56,6 +56,8 @@ function normalizedAccount(value: string): string {
  * deposit-account balance that can be audited across every displayed card.
  */
 export function isCreditCardStatement(transactions: StandardTransaction[], bankName = ''): boolean {
+  if (transactions.length && transactions.every(row => row.sourceAccountKind === 'deposit')) return false;
+  if (transactions.length && transactions.every(row => row.sourceAccountKind === 'credit')) return true;
   const text = [bankName, ...transactions.flatMap(transaction => [
     transaction.bankName, transaction.summary, transaction.counterpartyName, transaction.rawText
   ])].filter(Boolean).join(' ');

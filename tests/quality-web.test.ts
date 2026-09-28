@@ -12,6 +12,8 @@ import { buildEvidenceReviewIssues } from '../src/review/buildEvidenceReviewIssu
 import { decodeQualityRequest, runQualityModel, validImageBase64 } from '../functions/lib/qualityModel';
 import { qualityPrompts } from '../functions/lib/qualityPrompts.generated';
 import type { TableMappingPlan } from '../src/recognition/tableMapping';
+import { auditAccountBalance } from '../src/parsers/sanityChecker';
+import { isCreditCardStatement } from '../src/utils/transactionSequence';
 
 test('web prompts match the experimental prompts byte for byte', () => {
   for (const policy of Object.values(qualityPrompts)) {
@@ -93,10 +95,23 @@ test('web bridge preserves all 12 columns and field-specific checks across norma
   assert.equal(row.fieldEvidence?.amount?.originalValue, row.fieldEvidence?.amount?.currentValue);
   assert.deepEqual(row.candidateReview?.requiredFields, ['transactionType']);
   assert.equal(buildEvidenceReviewIssues(normalized.accounts[0], normalized.transactions).filter(i => i.severity === 'REQUIRED').length, 1);
+  assert.match(buildEvidenceReviewIssues(normalized.accounts[0], normalized.transactions)[0].title, /核对交易类型/);
   const wrongField = applyRowReviewDecision(row, ['amount'], 'ACCEPT_CURRENT');
   assert.equal(wrongField.candidateReview?.status, 'PENDING'); assert.equal(wrongField.transactionDate, '2026-07-10');
   const reviewed = applyRowReviewDecision({ ...row, transactionType: '账户转账' }, ['transactionType'], 'ACCEPT_CURRENT');
   assert.equal(reviewed.candidateReview?.status, 'CONFIRMED'); assert.equal(reviewed.transactionDate, '2026-07-10');
+});
+test('web balance audit uses source account kind and chronological endpoints on a reverse statement', () => {
+  const { registry } = buildQualitySources([{ nearTableText: [], tables: [{ rows: [['信用卡还款'], ['入账']] }] }]);
+  const result = { complete: true, pending: [], rows: [
+    { id: 'E1', values: ['001234567890', '某甲', '某银行', '2026-07-10 12:00:00', '2026-07-10', 'OUT', '10.00', '190.00', '信用卡还款', '支付宝（信用卡还款）', '009876543210', ''], sourceObservationIds: ['source:1'] },
+    { id: 'E2', values: ['001234567890', '某甲', '某银行', '2026-07-10 11:00:00', '2026-07-10', 'IN', '100.00', '200.00', '账户转账', '某乙', '009876543211', ''], sourceObservationIds: ['source:2'] }
+  ] };
+  const web = qualityToWeb(result, registry, 'reverse.pdf', 1, mapping);
+  assert.equal(isCreditCardStatement(web.transactions), false);
+  assert.equal(web.accounts[0].startBalance, 100); assert.equal(web.accounts[0].endBalance, 190);
+  assert.equal(auditAccountBalance(web.accounts[0], web.transactions).isBalanced, true);
+  assert.equal(isCreditCardStatement(web.transactions.map(row => ({ ...row, sourceAccountKind: 'credit' }))), true);
 });
 test('unchanged page selectors are rebased after an earlier page gains source cells', () => {
   const before = buildQualitySources([{ nearTableText: ['intro'], tables: [] }, sourcePage]);

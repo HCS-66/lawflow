@@ -8,6 +8,14 @@ const labels: Record<TransactionEvidenceField, string> = {
 function display(value: string | number | null): string {
   return value === null || value === '' ? '未读到' : value === 'IN' ? '收入' : value === 'OUT' ? '支出' : String(value);
 }
+export function candidateReviewTitle(row: StandardTransaction): string {
+  const review = row.candidateReview;
+  if (review?.kind === 'SOURCE_CHECK') {
+    const fields = [...new Set([...(review.requiredFields || []), ...review.differences.map(item => item.field)])];
+    return fields.length ? `核对${fields.map(field => labels[field]).join('、')}` : '核对标出的交易字段';
+  }
+  return review?.kind === 'FIELD_CONFLICT' ? '两次读取的字段不同' : '确认这行是否完整读取';
+}
 export function candidateReviewDescription(row: StandardTransaction): string {
   const review = row.candidateReview;
   if (!review) return '';

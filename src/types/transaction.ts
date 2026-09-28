@@ -125,6 +125,8 @@ export interface StandardTransaction {
   sourceObservationId?: string;
   /** Physical source rows retained by the quality pipeline, separate from the web row identity. */
   qualitySourceObservationIds?: string[];
+  /** Source table's account kind; repayment recipients do not determine the owner's account kind. */
+  sourceAccountKind?: 'deposit' | 'credit' | 'unknown';
   fieldEvidence?: Partial<Record<TransactionEvidenceField, FieldEvidence>>;
   rawPageNumber?: number; // 对应原始 PDF 或 Excel 行数
   rawRowIndex?: number;

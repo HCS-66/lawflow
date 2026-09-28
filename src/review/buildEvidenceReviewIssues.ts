@@ -2,7 +2,7 @@ import { BankAccount, EvidenceReviewIssue, StandardTransaction } from '../types/
 import { transactionBelongsToAccount, isReliableAccountNumber } from '../utils/accountIdentity';
 import { balanceContinuityIssues, daysBetween, isBalanceConfirmedZeroSettlement, isCreditCardStatement, isFeeWaiver } from '../utils/transactionSequence';
 import { isEvidenceOnly } from '../recognition/decisionPolicy';
-import { candidateReviewDescription, hasPendingCandidateReview } from './candidateReview';
+import { candidateReviewDescription, candidateReviewTitle, hasPendingCandidateReview } from './candidateReview';
 
 export function buildEvidenceReviewIssues(
   account: BankAccount,
@@ -84,7 +84,7 @@ export function buildEvidenceReviewIssues(
   for (const row of observations.filter(hasPendingCandidateReview)) {
     generated.push({ id: stableIssueId(`${account.accountNumber}|candidate|${row.id}`),
       category: 'CANDIDATE_CONFLICT', severity: 'REQUIRED',
-      title: `第 ${row.rawPageNumber || '?'} 页第 ${row.rawRowIndex || '?'} 行：${row.candidateReview?.kind === 'SOURCE_CHECK' ? '核对标出的账号或数字' : row.candidateReview?.kind === 'FIELD_CONFLICT' ? '两次读取的字段不同' : '确认这行是否完整读取'}`,
+      title: `第 ${row.rawPageNumber || '?'} 页第 ${row.rawRowIndex || '?'} 行：${candidateReviewTitle(row)}`,
       description: candidateReviewDescription(row), instructions: ['找到原件对应行', '按列出的差异核对并填写原件值，不以余额推算值代替原件'],
       pageNumber: row.rawPageNumber, transactionIds: [row.id], status: 'PENDING' });
   }

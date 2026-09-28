@@ -104,6 +104,6 @@ export async function parsePdfWithQualityPipeline(file: File, onProgress: (p: Ge
       }
     });
     await options.store.saveDelivery(delivery);
-    return qualityToWeb(delivery.result, delivery.registry, file.name, renderer.totalPages);
+    return qualityToWeb(delivery.result, delivery.registry, file.name, renderer.totalPages, delivery.mapping);
   } finally { await renderer.destroy(); }
 }
