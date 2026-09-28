@@ -8,6 +8,7 @@ export type AccountOwnerType =
   | 'UNKNOWN';       // 未分配
 
 export interface BankAccount {
+  qualityPipeline?: boolean;
   accountNumber: string;
   accountName: string;
   bankName: string;
@@ -55,6 +56,11 @@ export interface EvidenceReviewIssue {
 
 export type TransactionEvidenceField =
   | 'accountNumber'
+  | 'accountName'
+  | 'bankName'
+  | 'transactionDate'
+  | 'transactionType'
+  | 'counterpartyBank'
   | 'transactionTime'
   | 'direction'
   | 'amount'
@@ -117,6 +123,8 @@ export interface StandardTransaction {
   sourceContentHash?: string;
   extractionRunId?: string;
   sourceObservationId?: string;
+  /** Physical source rows retained by the quality pipeline, separate from the web row identity. */
+  qualitySourceObservationIds?: string[];
   fieldEvidence?: Partial<Record<TransactionEvidenceField, FieldEvidence>>;
   rawPageNumber?: number; // 对应原始 PDF 或 Excel 行数
   rawRowIndex?: number;
@@ -124,7 +132,7 @@ export interface StandardTransaction {
   /** Location of the printed source row on the original page. */
   sourceRegion?: SourceRegion;
   balanceAvailable?: boolean;
-  extractionMethod?: 'DOCUMENT_PDF' | 'DOCUMENT_IMAGE' | 'GEMINI_DIRECT_PDF' | 'MINERU_DIRECT_PDF' | 'MANUAL';
+  extractionMethod?: 'DOCUMENT_PDF' | 'DOCUMENT_IMAGE' | 'GEMINI_DIRECT_PDF' | 'MINERU_DIRECT_PDF' | 'QWEN_GEMINI_QUALITY' | 'MANUAL';
   extractionConfidence?: number;
   extractionChunkId?: string;
   reviewStatus?: 'AUTO_PASSED' | 'PENDING' | 'VERIFIED' | 'CORRECTED';

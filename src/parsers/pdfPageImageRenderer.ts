@@ -30,12 +30,13 @@ export interface PdfPageImage {
 export interface PdfPageImageRenderer {
   totalPages: number;
   renderPage(pageNumber: number, rotation?: number, scale?: number): Promise<PdfPageImage>;
+  hasText(pageNumber: number): Promise<boolean>;
   destroy(): Promise<void>;
 }
 
 export async function getPdfPageCount(file: File): Promise<number> {
   const pdfjs = await getPdfjs();
-  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
+  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()), cMapUrl: '/pdfjs/cmaps/', cMapPacked: true, standardFontDataUrl: '/pdfjs/standard_fonts/' });
   try {
     const document = await loadingTask.promise;
     if (!document.numPages) throw new Error('PDF 中没有可读取的页面');
@@ -47,13 +48,18 @@ export async function getPdfPageCount(file: File): Promise<number> {
 
 export async function createPdfPageImageRenderer(file: File): Promise<PdfPageImageRenderer> {
   const pdfjs = await getPdfjs();
-  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
+  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()), cMapUrl: '/pdfjs/cmaps/', cMapPacked: true, standardFontDataUrl: '/pdfjs/standard_fonts/' });
   const document = await loadingTask.promise;
   if (!document.numPages) throw new Error('PDF 中没有可读取的页面');
 
   return {
     totalPages: document.numPages,
     renderPage: (pageNumber, rotation = 0, scale = 2.35) => renderPage(document, file.name, pageNumber, rotation, scale),
+    hasText: async pageNumber => {
+      const page = await document.getPage(pageNumber);
+      const content = await page.getTextContent();
+      return content.items.some((item: any) => typeof item.str === 'string' && item.str.trim());
+    },
     destroy: async () => {
       await loadingTask.destroy();
     }

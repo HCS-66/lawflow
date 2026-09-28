@@ -1,6 +1,7 @@
 import type { StandardTransaction, TransactionEvidenceField } from '../types/transaction';
 
 const labels: Record<TransactionEvidenceField, string> = {
+  accountName: '本方名称', bankName: '本方银行', transactionDate: '交易日期', transactionType: '交易类型', counterpartyBank: '对方银行',
   accountNumber: '本方账号', transactionTime: '日期／时间', direction: '收支方向', amount: '金额',
   balance: '交易后余额', counterpartyName: '对手方名称', counterpartyAccount: '对手方账号', summary: '摘要'
 };

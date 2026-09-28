@@ -26,6 +26,15 @@ jobs:
       - name: Build Web Application
         run: npm run build
 
+      - name: Configure Qwen for the PDF recognition pipeline
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+        run: |
+          test -n "$DASHSCOPE_API_KEY" || { echo 'DASHSCOPE_API_KEY is required for PDF recognition'; exit 1; }
+          printf '%s' "$DASHSCOPE_API_KEY" | npx wrangler pages secret put DASHSCOPE_API_KEY --project-name=lawflow
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:

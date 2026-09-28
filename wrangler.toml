@@ -5,7 +5,8 @@ pages_build_output_dir = "dist"
 # Required production secrets / variables (configure in Cloudflare; never commit values):
 # GEMINI_API_KEY     = Gemini API Key（required for the current PDF pipeline）
 # GEMINI_MODEL       = gemini-3.8-flash（optional; this is the code default）
-# MINERU_API_TOKEN   = MinerU 精准解析 Token（required for the current direct PDF pipeline）
+# DASHSCOPE_API_KEY  = Qwen API Key（required for full-page verbatim extraction）
+# QWEN_MODEL         = qwen3.8-flash（optional）
 # LAWFLOW_ALLOWED_ORIGIN = https://your-production-domain.example（recommended）
 # LAWFLOW_REQUIRE_ACCESS = true（recommended; requires a Cloudflare Access policy）
 

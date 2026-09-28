@@ -1,9 +1,13 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { cpSync, mkdirSync } from 'node:fs';
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), { name: 'pdf-font-resources', closeBundle() {
+    mkdirSync('dist/pdfjs', { recursive: true });
+    for (const name of ['cmaps', 'standard_fonts']) cpSync(`node_modules/pdfjs-dist/${name}`, `dist/pdfjs/${name}`, { recursive: true });
+  } }],
   optimizeDeps: {
     include: ['exceljs', 'docx', 'file-saver'],
   },

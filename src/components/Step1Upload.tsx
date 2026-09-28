@@ -1,32 +1,17 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { UploadCloud, FileSpreadsheet, FileText, FileImage, CheckCircle2, ArrowRight, ArrowLeft, Trash2, PlusCircle, AlertCircle, ShieldCheck, Sparkles, StopCircle, RotateCcw, CircleSlash2, Scissors, Clipboard, ClipboardCheck } from 'lucide-react';
+import { UploadCloud, FileSpreadsheet, FileText, FileImage, CheckCircle2, ArrowRight, ArrowLeft, Trash2, PlusCircle, AlertCircle, ShieldCheck, Sparkles, StopCircle, RotateCcw, CircleSlash2, Clipboard, ClipboardCheck } from 'lucide-react';
 import { BankAccount, StandardTransaction } from '../types/transaction';
 import { parseExcelBankStatement } from '../parsers/excelParser';
 import type { GeminiProgressInfo } from '../parsers/geminiPdfParser';
-import { parsePdfWithMinerU } from '../parsers/mineruBankStatementParser';
+import { parsePdfWithQualityPipeline } from '../parsers/qualityPdfParser';
+import { createQualityCheckpointStore } from '../store/qualityCheckpointStore';
 import { deleteSourceDocument, saveSourceDocument } from '../store/sourceDocumentStore';
-import { createRecognitionCheckpointStore, clearRecognitionCheckpoints } from '../store/recognitionCheckpointStore';
 import { accountIdentityKey, transactionBelongsToAccount } from '../utils/accountIdentity';
 import { importErrorForUser } from '../utils/userFacingError';
 import { attachSourceProvenance, createExtractionRun, identifySourceDocument, sourceFilesWithoutTransactions, sourceIdentity, transactionCountsBySource } from '../utils/evidenceProvenance';
-import { publishAutomationImportState, publishRecognitionCheckpoint } from '../debug/automationBridge';
+import { publishAutomationImportState } from '../debug/automationBridge';
 import { normalizeRecognizedData } from '../utils/recognizedDataNormalizer';
 import { businessAccounts, incompleteRecognitionPages, isDocumentReviewAccount } from '../review/recognitionCompleteness';
-import {
-  createBankSplitFiles,
-  buildPdfBankSplitSuggestion,
-  getRecognitionSplitMetadata,
-  isPageRecommendedForRecognition,
-  PdfBankSplitPlan,
-  PdfPageClassification,
-  formatPageSelection,
-  parsePageSelection,
-  preparePdfBankSplitPlan,
-  releasePdfSplitPlanPreviews,
-  validateBankGroups
-} from '../parsers/pdfBankSplitter';
-import { discoverPdfPageMapWithMinerU } from '../parsers/mineruPdfParser';
-import { PdfTimelineEditor } from './PdfTimelineEditor';
 import { formatRecognitionDiagnostics } from '../review/recognitionDiagnostics';
 import { copyText } from '../utils/copyText';
 
@@ -85,60 +70,8 @@ function formatImportTasksForCopy(tasks: ImportTask[]): string {
   return lines.join('\n');
 }
 
-function pdfGroupPages(group: PdfBankSplitPlan['groups'][number], totalPages: number): number[] {
-  try {
-    const pages = parsePageSelection(group.pageSelection, totalPages);
-    return pages.length ? pages : group.pages;
-  } catch {
-    return group.pages;
-  }
-}
-
-function continuousPages(start: number, end: number): number[] {
-  return start <= end ? Array.from({ length: end - start + 1 }, (_, index) => start + index) : [];
-}
-
-function withSyncedPdfAssignments(plan: PdfBankSplitPlan, groups: PdfBankSplitPlan['groups']): PdfBankSplitPlan {
-  const bankByPage = new Map<number, string>();
-  for (const group of groups) {
-    for (const page of pdfGroupPages(group, plan.totalPages)) bankByPage.set(page, group.bankName);
-  }
-  return {
-    ...plan,
-    groups,
-    pages: plan.pages.map(page => ({
-      ...page,
-      assignedBankName: bankByPage.get(page.page) || '待确认银行'
-    }))
-  };
-}
-
-const StrategySummary: React.FC<{
-  label: string;
-  groups: PdfBankSplitPlan['groups'];
-  message?: string;
-}> = ({ label, groups, message }) => (
-  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-    <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
-    {groups.length > 0 ? (
-      <div className="mt-1.5 space-y-1 text-[11px] text-slate-700">
-        {groups.slice(0, 6).map(group => (
-          <div key={group.id} className="flex items-center justify-between gap-3">
-            <span className="truncate" title={group.bankName}>{group.bankName}</span>
-            <span className="flex-shrink-0 font-mono text-slate-500">第 {group.pageSelection} 页</span>
-          </div>
-        ))}
-        {groups.length > 6 && <div className="text-slate-400">另有 {groups.length - 6} 个区间…</div>}
-      </div>
-    ) : (
-      <div className="mt-1.5 text-[11px] leading-relaxed text-slate-500">{message || '正在生成对照方案…'}</div>
-    )}
-  </div>
-);
-
 export const Step1Upload: React.FC<Step1Props> = ({
   caseId,
-  caseRespondentName,
   accounts,
   transactions,
   onDataUpdated,
@@ -153,13 +86,9 @@ export const Step1Upload: React.FC<Step1Props> = ({
   const [resumeNotice, setResumeNotice] = useState<string | null>(null);
   const [isCancellable, setIsCancellable] = useState(false);
   const [importTasks, setImportTasks] = useState<ImportTask[]>([]);
-  const [pendingPdfPlans, setPendingPdfPlans] = useState<PdfBankSplitPlan[]>([]);
-  const [splitValidationErrors, setSplitValidationErrors] = useState<Record<string, string[]>>({});
   const [copiedReport, setCopiedReport] = useState<'TASKS' | 'ANOMALIES' | ''>('');
 
   const abortControllerRef = useRef<AbortController | null>(null);
-  const mineruControllersRef = useRef<Map<string, AbortController>>(new Map());
-  const pendingPdfPlansRef = useRef<PdfBankSplitPlan[]>([]);
   const zeroTransactionFiles = sourceFilesWithoutTransactions(accounts, transactions);
   const sourceTransactionCounts = transactionCountsBySource(transactions);
   const hasTransactions = transactions.length > 0;
@@ -199,14 +128,7 @@ export const Step1Upload: React.FC<Step1Props> = ({
     return () => window.removeEventListener('beforeunload', warnBeforeLeaving);
   }, [isProcessing]);
 
-  useEffect(() => {
-    pendingPdfPlansRef.current = pendingPdfPlans;
-  }, [pendingPdfPlans]);
-
-  useEffect(() => () => {
-    pendingPdfPlansRef.current.forEach(releasePdfSplitPlanPreviews);
-    mineruControllersRef.current.forEach(controller => controller.abort());
-  }, []);
+  useEffect(() => () => abortControllerRef.current?.abort(), []);
 
   useEffect(() => {
     publishAutomationImportState({
@@ -231,20 +153,9 @@ export const Step1Upload: React.FC<Step1Props> = ({
         diagnosticCode: task.diagnosticCode,
         diagnosis: task.diagnosis
       })),
-      pdfSplitPlans: pendingPdfPlans.map(plan => ({
-        fileName: plan.sourceFile.name,
-        totalPages: plan.totalPages,
-        groups: plan.groups.map(group => ({ bankName: group.bankName, pageSelection: group.pageSelection })),
-        pages: plan.pages.map(page => ({
-          page: page.page,
-          pageType: page.pageType,
-          bankName: page.assignedBankName,
-          selectedForRecognition: page.selectedForRecognition
-        })),
-        validationErrors: splitValidationErrors[plan.id] || []
-      }))
+      pdfSplitPlans: []
     });
-  }, [isProcessing, statusText, progressInfo, importTasks, pendingPdfPlans, splitValidationErrors]);
+  }, [isProcessing, statusText, progressInfo, importTasks]);
 
   const handleCancelProcessing = () => {
     if (abortControllerRef.current) {
@@ -338,13 +249,7 @@ export const Step1Upload: React.FC<Step1Props> = ({
           const controller = new AbortController();
           abortControllerRef.current = controller;
           setIsCancellable(true);
-          if (forceFresh) {
-            try { await clearRecognitionCheckpoints(caseId, file.name, source.documentId); }
-            catch { setResumeNotice('旧进度未能清除，但本次会忽略旧进度，从头识别。'); }
-          }
-          // Read the document once, organize individual pages, retain evidence,
-          // and validate without guessing changes to extracted financial fields.
-          const { accounts: parsedAccounts, transactions: parsedTx } = await parsePdfWithMinerU(
+          const { accounts: parsedAccounts, transactions: parsedTx } = await parsePdfWithQualityPipeline(
             file,
             (info: GeminiProgressInfo) => {
               setProgressInfo(info);
@@ -352,14 +257,8 @@ export const Step1Upload: React.FC<Step1Props> = ({
             },
             controller.signal,
             {
-              respondentName: caseRespondentName,
-              resumeStore: createRecognitionCheckpointStore(caseId, source.documentId, file.name, caseRespondentName || ''),
-              forceFresh,
-              onResumeWarning: setResumeNotice,
-              onPageCheckpoint: checkpoint => publishRecognitionCheckpoint(checkpoint, {
-                documentId: source.documentId, runId: extractionRun.id,
-                fileName: file.name, totalPages: checkpoint.selected.totalPages
-              })
+              store: createQualityCheckpointStore(caseId, source.documentId, forceFresh),
+              onResumeWarning: setResumeNotice
             }
           );
           let sourceStored = true;
@@ -464,306 +363,12 @@ export const Step1Upload: React.FC<Step1Props> = ({
     onDataUpdated(newAccounts, newTransactions);
   };
 
-  const startMineruComparison = (file: File, plan: PdfBankSplitPlan) => {
-    mineruControllersRef.current.get(plan.id)?.abort();
-    const controller = new AbortController();
-    mineruControllersRef.current.set(plan.id, controller);
-    void (async () => {
-      try {
-        const mineruPageMap = await discoverPdfPageMapWithMinerU(file, plan.totalPages, progress => {
-          setPendingPdfPlans(current => current.map(item => item.id !== plan.id ? item : {
-            ...item,
-            comparison: item.comparison ? {
-              ...item.comparison,
-              mineruStatus: 'PROCESSING',
-              mineruMessage: progress.message
-            } : item.comparison
-          }));
-        }, controller.signal);
-        const mineru = buildPdfBankSplitSuggestion('MINERU', mineruPageMap, plan);
-        setPendingPdfPlans(current => current.map(item => item.id !== plan.id ? item : {
-          ...item,
-          comparison: {
-            ...(item.comparison || {
-              activeStrategy: 'CURRENT' as const,
-              current: { strategy: 'CURRENT' as const, groups: item.groups, pages: item.pages }
-            }),
-            mineru,
-            mineruStatus: 'READY' as const,
-            mineruMessage: `MinerU 已形成 ${mineru.groups.length} 个连续银行区间`
-          }
-        }));
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        const coded = error as Error & { code?: string };
-        const unavailable = coded.code === 'MINERU_NOT_CONFIGURED';
-        const message = unavailable
-          ? '尚未配置 MinerU 凭据；现有方案可正常使用'
-          : `MinerU 对照失败：${error instanceof Error ? error.message : String(error)}`;
-        setPendingPdfPlans(current => current.map(item => item.id !== plan.id ? item : {
-          ...item,
-          comparison: {
-            ...(item.comparison || {
-              activeStrategy: 'CURRENT' as const,
-              current: { strategy: 'CURRENT' as const, groups: item.groups, pages: item.pages }
-            }),
-            mineruStatus: unavailable ? 'UNAVAILABLE' as const : 'ERROR' as const,
-            mineruMessage: message
-          }
-        }));
-      } finally {
-        if (mineruControllersRef.current.get(plan.id) === controller) mineruControllersRef.current.delete(plan.id);
-      }
-    })();
-  };
-
-  const preparePdfPlans = async (files: File[]) => {
-    if (!files.length) return;
-    setIsProcessing(true);
-    setErrorMessage(null);
-    setProgressInfo(null);
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-    setIsCancellable(true);
-    try {
-      for (const [fileIndex, file] of files.entries()) {
-        setStatusText(`正在扫描“${file.name}”的银行和页码…`);
-        const plan = await preparePdfBankSplitPlan(file, (message, completedPages, totalPages) => {
-          const fileBase = fileIndex / files.length;
-          const fileProgress = totalPages ? completedPages / totalPages / files.length : 0;
-          setProgressInfo({
-            statusText: message,
-            totalTransactions: 0,
-            percent: Math.min(99, Math.round((fileBase + fileProgress) * 100)),
-            isStreaming: true
-          });
-          setStatusText(message);
-        }, controller.signal);
-        setPendingPdfPlans(current => {
-          const next = new Map(current.map(item => [item.id, item]));
-          const previous = next.get(plan.id);
-          if (previous) releasePdfSplitPlanPreviews(previous);
-          next.set(plan.id, plan);
-          return [...next.values()];
-        });
-        startMineruComparison(file, plan);
-      }
-    } catch (error) {
-      if (controller.signal.aborted) setStatusText('已停止 PDF 分拣，尚未开始识别。');
-      else setErrorMessage(`PDF 分拣失败：${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      abortControllerRef.current = null;
-      setIsCancellable(false);
-      setIsProcessing(false);
-      setProgressInfo(null);
-      if (!controller.signal.aborted) setStatusText(null);
-    }
-  };
-
-  const selectPdfStrategy = (planId: string, strategy: 'CURRENT' | 'MINERU') => {
-    setPendingPdfPlans(current => current.map(plan => {
-      if (plan.id !== planId || !plan.comparison || plan.comparison.activeStrategy === strategy) return plan;
-      const activeSnapshot = {
-        strategy: plan.comparison.activeStrategy,
-        groups: plan.groups,
-        pages: plan.pages
-      };
-      const comparison = {
-        ...plan.comparison,
-        current: plan.comparison.activeStrategy === 'CURRENT' ? activeSnapshot : plan.comparison.current,
-        mineru: plan.comparison.activeStrategy === 'MINERU' ? activeSnapshot : plan.comparison.mineru,
-        activeStrategy: strategy
-      };
-      const target = strategy === 'CURRENT' ? comparison.current : comparison.mineru;
-      if (!target) return plan;
-      return { ...plan, groups: target.groups, pages: target.pages, comparison };
-    }));
-    setSplitValidationErrors(current => ({ ...current, [planId]: [] }));
-  };
-
   const handleFiles = async (files: FileList | File[]) => {
     if (isProcessing) {
       setErrorMessage('当前文件仍在处理中，请等待完成或停止后再添加文件。');
       return;
     }
-    // MinerU direct trial: PDFs no longer stop at the page-classification
-    // timeline. The legacy preparation functions below remain available for a
-    // quick rollback, but are not part of the active upload path.
     await processFiles(Array.from(files));
-  };
-
-  const updatePdfGroup = (planId: string, groupId: string, patch: { bankName?: string; pageSelection?: string }) => {
-    setPendingPdfPlans(current => current.map(plan => {
-      if (plan.id !== planId) return plan;
-      const groups = plan.groups.map(group => group.id === groupId ? { ...group, ...patch } : group);
-      return withSyncedPdfAssignments(plan, groups);
-    }));
-    setSplitValidationErrors(current => ({ ...current, [planId]: [] }));
-  };
-
-  const updatePdfPageType = (
-    planId: string,
-    pageNumber: number,
-    pageType: PdfPageClassification['pageType']
-  ) => {
-    setPendingPdfPlans(current => current.map(plan => plan.id !== planId ? plan : {
-      ...plan,
-      pages: plan.pages.map(page => {
-        if (page.page !== pageNumber) return page;
-        const suggestedForRecognition = isPageRecommendedForRecognition(pageType);
-        return {
-          ...page,
-          pageType,
-          suggestedForRecognition,
-          selectedForRecognition: page.selectionModifiedByUser
-            ? page.selectedForRecognition
-            : suggestedForRecognition
-        };
-      })
-    }));
-    setSplitValidationErrors(current => ({ ...current, [planId]: [] }));
-  };
-
-  const togglePdfPageSelection = (planId: string, pageNumber: number) => {
-    setPendingPdfPlans(current => current.map(plan => plan.id !== planId ? plan : {
-      ...plan,
-      pages: plan.pages.map(page => page.page === pageNumber ? {
-        ...page,
-        selectedForRecognition: !page.selectedForRecognition,
-        selectionModifiedByUser: true
-      } : page)
-    }));
-    setSplitValidationErrors(current => ({ ...current, [planId]: [] }));
-  };
-
-  const applySuggestedPageSelection = (planId: string, pageNumbers?: number[]) => {
-    const targetPages = pageNumbers ? new Set(pageNumbers) : null;
-    setPendingPdfPlans(current => current.map(plan => plan.id !== planId ? plan : {
-      ...plan,
-      pages: plan.pages.map(page => !targetPages || targetPages.has(page.page) ? {
-        ...page,
-        selectedForRecognition: page.suggestedForRecognition,
-        selectionModifiedByUser: false
-      } : page)
-    }));
-    setSplitValidationErrors(current => ({ ...current, [planId]: [] }));
-  };
-
-  const updatePdfBoundary = (planId: string, boundaryIndex: number, leftEndPage: number) => {
-    setPendingPdfPlans(current => current.map(plan => {
-      if (plan.id !== planId) return plan;
-      const left = plan.groups[boundaryIndex];
-      const right = plan.groups[boundaryIndex + 1];
-      if (!left || !right) return plan;
-      const leftPages = pdfGroupPages(left, plan.totalPages);
-      const rightPages = pdfGroupPages(right, plan.totalPages);
-      const start = leftPages[0];
-      const end = rightPages.at(-1);
-      if (!start || !end || end <= start) return plan;
-      const boundary = Math.max(start, Math.min(end - 1, Math.round(leftEndPage)));
-      const nextLeftPages = continuousPages(start, boundary);
-      const nextRightPages = continuousPages(boundary + 1, end);
-      const groups = plan.groups.map((group, index) => {
-        if (index === boundaryIndex) return { ...group, pages: nextLeftPages, pageSelection: formatPageSelection(nextLeftPages) };
-        if (index === boundaryIndex + 1) return { ...group, pages: nextRightPages, pageSelection: formatPageSelection(nextRightPages) };
-        return group;
-      });
-      return withSyncedPdfAssignments(plan, groups);
-    }));
-    setSplitValidationErrors(current => ({ ...current, [planId]: [] }));
-  };
-
-  const splitPdfGroupAtPage = (planId: string, pageNumber: number) => {
-    setPendingPdfPlans(current => current.map(plan => {
-      if (plan.id !== planId) return plan;
-      const groupIndex = plan.groups.findIndex(group => pdfGroupPages(group, plan.totalPages).includes(pageNumber));
-      if (groupIndex < 0) return plan;
-      const group = plan.groups[groupIndex];
-      const pages = pdfGroupPages(group, plan.totalPages);
-      const start = pages[0];
-      const end = pages.at(-1);
-      if (!start || !end || pageNumber <= start || pageNumber > end) return plan;
-      const leftPages = continuousPages(start, pageNumber - 1);
-      const rightPages = continuousPages(pageNumber, end);
-      const left = { ...group, pages: leftPages, pageSelection: formatPageSelection(leftPages) };
-      const right = {
-        ...group,
-        id: `MANUAL_${Date.now()}_${pageNumber}`,
-        pages: rightPages,
-        pageSelection: formatPageSelection(rightPages),
-        suggestedBankName: group.bankName,
-        boundaryBasis: 'MANUAL' as const,
-        documentLabel: ''
-      };
-      left.boundaryBasis = 'MANUAL';
-      const groups = [...plan.groups.slice(0, groupIndex), left, right, ...plan.groups.slice(groupIndex + 1)];
-      return withSyncedPdfAssignments(plan, groups);
-    }));
-    setSplitValidationErrors(current => ({ ...current, [planId]: [] }));
-  };
-
-  const removePdfGroup = (planId: string, groupId: string) => {
-    setPendingPdfPlans(current => current.map(plan => {
-      if (plan.id !== planId || plan.groups.length <= 1) return plan;
-      const groupIndex = plan.groups.findIndex(group => group.id === groupId);
-      if (groupIndex < 0) return plan;
-      const targetPages = pdfGroupPages(plan.groups[groupIndex], plan.totalPages);
-      const mergeIndex = groupIndex > 0 ? groupIndex - 1 : 1;
-      const mergePages = pdfGroupPages(plan.groups[mergeIndex], plan.totalPages);
-      const combined = [...new Set([...targetPages, ...mergePages])].sort((left, right) => left - right);
-      const groups = plan.groups
-        .filter((_, index) => index !== groupIndex)
-        .map(group => group.id === plan.groups[mergeIndex].id
-          ? { ...group, pages: combined, pageSelection: formatPageSelection(combined) }
-          : group);
-      return withSyncedPdfAssignments(plan, groups);
-    }));
-    setSplitValidationErrors(current => ({ ...current, [planId]: [] }));
-  };
-
-  const discardPdfPlan = (planId: string) => {
-    mineruControllersRef.current.get(planId)?.abort();
-    mineruControllersRef.current.delete(planId);
-    setPendingPdfPlans(current => {
-      current.filter(plan => plan.id === planId).forEach(releasePdfSplitPlanPreviews);
-      return current.filter(plan => plan.id !== planId);
-    });
-    setSplitValidationErrors(current => {
-      const next = { ...current };
-      delete next[planId];
-      return next;
-    });
-  };
-
-  const confirmPdfPlans = async () => {
-    const errors = Object.fromEntries(pendingPdfPlans.map(plan => [
-      plan.id,
-      validateBankGroups(plan.groups, plan.totalPages, plan.pages)
-    ]));
-    setSplitValidationErrors(errors);
-    if (Object.values(errors).some(items => items.length)) {
-      setErrorMessage('分拣方案仍有未确认、漏页或重复页，请按红色提示修改后再开始识别。');
-      return;
-    }
-    mineruControllersRef.current.forEach(controller => controller.abort());
-    mineruControllersRef.current.clear();
-    setErrorMessage(null);
-    setIsProcessing(true);
-    setStatusText('正在生成各银行独立 PDF…');
-    try {
-      const splitFiles: File[] = [];
-      for (const plan of pendingPdfPlans) splitFiles.push(...await createBankSplitFiles(plan));
-      pendingPdfPlans.forEach(releasePdfSplitPlanPreviews);
-      setPendingPdfPlans([]);
-      setSplitValidationErrors({});
-      setIsProcessing(false);
-      setStatusText(null);
-      await processFiles(splitFiles);
-    } catch (error) {
-      setIsProcessing(false);
-      setStatusText(null);
-      setErrorMessage(`无法生成银行分文件：${error instanceof Error ? error.message : String(error)}`);
-    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -806,12 +411,12 @@ export const Step1Upload: React.FC<Step1Props> = ({
           <div className="flex items-center space-x-2">
             <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-xs font-medium">
               <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-              <span>MinerU 直接结构化提取</span>
+              <span>逐页原文识别</span>
             </span>
 
             <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-medium">
               <ShieldCheck className="w-3 h-3 text-emerald-600" />
-              <span>原 PDF 直传 · 无需预分档</span>
+              <span>检查空白和方向 · 保留整页原文</span>
             </span>
           </div>
         </div>
@@ -820,7 +425,7 @@ export const Step1Upload: React.FC<Step1Props> = ({
           上传银行流水证据文件
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Excel/CSV 会直接读取；PDF 当前直接交给 MinerU 提取账户与流水，不再预先分类或切分银行。完成后请对照原件复核。
+          Excel/CSV 会直接读取；PDF 先检查空白页和方向，再照录整页、整理为标准流水，并标出需要您确认的字段。
         </p>
       </div>
 
@@ -908,7 +513,7 @@ export const Step1Upload: React.FC<Step1Props> = ({
                   <div className="flex justify-between items-center text-[11px] text-slate-600 font-medium pt-0.5">
                     <div className="flex items-center space-x-1.5">
                       <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                      <span><strong>MinerU 正在解析原始文件</strong></span>
+                      <span><strong>正在检查页面并识别原文</strong></span>
                       {progressInfo.currentBank && (
                         <span className="ml-1 px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 text-[10px] font-semibold">
                           {progressInfo.currentBank}
@@ -932,140 +537,6 @@ export const Step1Upload: React.FC<Step1Props> = ({
           )}
         </div>
       </div>
-
-      {pendingPdfPlans.length > 0 && (
-        <div className="bg-white rounded-2xl border border-blue-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 bg-blue-50/80 border-b border-blue-200 flex items-start justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <div className="p-2 rounded-xl bg-blue-100 text-blue-700">
-                <Scissors className="w-5 h-5" />
-              </div>
-              <div>
-                <h2 className="text-sm font-semibold text-slate-900">确认 PDF 页面时间线</h2>
-                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                  先在剪辑式时间线上调整银行区间和识别范围；点击页面帧后，下方同步显示对应的原始 PDF 单页。
-                </p>
-              </div>
-            </div>
-            <span className="text-[11px] font-medium text-blue-700 bg-white border border-blue-200 rounded-full px-2.5 py-1 flex-shrink-0">
-              待确认 {pendingPdfPlans.length} 个原文件
-            </span>
-          </div>
-
-          <div className="p-5 space-y-5">
-            {pendingPdfPlans.map(plan => {
-              const planErrors = splitValidationErrors[plan.id] || [];
-              return (
-                <section key={plan.id} className="rounded-xl border border-slate-200 overflow-hidden">
-                  <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold text-slate-900 truncate" title={plan.sourceFile.name}>{plan.sourceFile.name}</div>
-                      <div className="text-[11px] text-slate-500 mt-0.5">
-                        共 {plan.totalPages} 页 · 系统建议 {plan.groups.length} 个连续银行区间
-                        {plan.groups.some(group => group.boundaryBasis === 'MODEL_BANK') ? ' · 模型已判断银行切换位置' : ' · 暂按逐页银行证据分档'}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => discardPdfPlan(plan.id)}
-                      disabled={isProcessing}
-                      className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-rose-600 px-2 py-1.5 rounded-lg hover:bg-rose-50 disabled:opacity-50"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      移除
-                    </button>
-                  </div>
-
-                  <div className="p-4 space-y-3">
-                    {plan.comparison && (
-                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                          <div>
-                            <div className="text-xs font-semibold text-slate-800">分档方案对比</div>
-                            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-                              两套方案只负责判断页面类型和银行切换位置；确认后仅采用当前选中的一套进入流水识别。
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              disabled={isProcessing}
-                              onClick={() => selectPdfStrategy(plan.id, 'CURRENT')}
-                              className={`rounded-lg border px-3 py-2 text-left text-[11px] transition ${plan.comparison.activeStrategy === 'CURRENT'
-                                ? 'border-blue-500 bg-blue-50 text-blue-800 shadow-sm'
-                                : 'border-slate-200 bg-white text-slate-600 hover:border-blue-300'}`}
-                            >
-                              <span className="block font-semibold">现有视觉方案</span>
-                              <span className="mt-0.5 block">{plan.comparison.current.groups.length} 个区间</span>
-                            </button>
-                            <button
-                              type="button"
-                              disabled={isProcessing || plan.comparison.mineruStatus !== 'READY'}
-                              onClick={() => selectPdfStrategy(plan.id, 'MINERU')}
-                              className={`rounded-lg border px-3 py-2 text-left text-[11px] transition disabled:cursor-not-allowed disabled:opacity-60 ${plan.comparison.activeStrategy === 'MINERU'
-                                ? 'border-emerald-500 bg-emerald-50 text-emerald-800 shadow-sm'
-                                : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-300'}`}
-                            >
-                              <span className="block font-semibold">MinerU 结构化方案</span>
-                              <span className="mt-0.5 block">
-                                {plan.comparison.mineruStatus === 'READY'
-                                  ? `${plan.comparison.mineru?.groups.length || 0} 个区间`
-                                  : plan.comparison.mineruStatus === 'PROCESSING' ? '正在生成…' : '暂不可用'}
-                              </span>
-                            </button>
-                          </div>
-                        </div>
-                        <div className="mt-3 grid gap-2 md:grid-cols-2">
-                          <StrategySummary
-                            label="现有视觉方案"
-                            groups={plan.comparison.activeStrategy === 'CURRENT' ? plan.groups : plan.comparison.current.groups}
-                          />
-                          <StrategySummary
-                            label="MinerU 结构化方案"
-                            groups={plan.comparison.activeStrategy === 'MINERU' ? plan.groups : plan.comparison.mineru?.groups || []}
-                            message={plan.comparison.mineruMessage}
-                          />
-                        </div>
-                      </div>
-                    )}
-                    <PdfTimelineEditor
-                      plan={plan}
-                      disabled={isProcessing}
-                      onGroupChange={(groupId, patch) => updatePdfGroup(plan.id, groupId, patch)}
-                      onBoundaryChange={(boundaryIndex, leftEndPage) => updatePdfBoundary(plan.id, boundaryIndex, leftEndPage)}
-                      onRemoveGroup={groupId => removePdfGroup(plan.id, groupId)}
-                      onSplitAtPage={pageNumber => splitPdfGroupAtPage(plan.id, pageNumber)}
-                      onPageTypeChange={(pageNumber, pageType) => updatePdfPageType(plan.id, pageNumber, pageType)}
-                      onTogglePageSelection={pageNumber => togglePdfPageSelection(plan.id, pageNumber)}
-                      onApplySuggestedSelection={() => applySuggestedPageSelection(plan.id)}
-                    />
-                    {planErrors.length > 0 && (
-                      <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-900 space-y-1">
-                        {planErrors.map(error => <div key={error}>• {error}</div>)}
-                      </div>
-                    )}
-                  </div>
-                </section>
-              );
-            })}
-
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
-              <p className="text-[11px] text-slate-500 leading-relaxed">
-                确认时会检查 1 到末页是否全部归类、没有重复且每段连续。同一银行在后文再次出现时仍保留为新的连续页段；只有勾选的原生 PDF 页面进入识别，不会把缩略图当作识别原件。
-              </p>
-              <button
-                type="button"
-                onClick={confirmPdfPlans}
-                disabled={isProcessing || pendingPdfPlans.length === 0}
-                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-sm disabled:opacity-50 flex-shrink-0"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                确认分拣并开始识别
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {zeroTransactionFiles.length > 0 && (
         <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-950">
@@ -1203,7 +674,7 @@ export const Step1Upload: React.FC<Step1Props> = ({
               const fileName = firstAccount.fileName;
               const fileTransactionCount = sourceTransactionCounts.get(sourceKey) || 0;
               const fileTransactions = transactions.filter(transaction => sourceIdentity(transaction) === sourceKey);
-              const isMinerUDirect = fileTransactions.some(transaction => transaction.extractionMethod === 'MINERU_DIRECT_PDF');
+              const isQualityPipeline = fileTransactions.some(transaction => transaction.extractionMethod === 'QWEN_GEMINI_QUALITY');
               const fileBusinessAccounts = fileAccounts.filter(account => !isDocumentReviewAccount(account));
               const reviewPages = incompleteRecognitionPages(fileAccounts);
               return (
@@ -1221,7 +692,7 @@ export const Step1Upload: React.FC<Step1Props> = ({
                         <p className="text-sm font-semibold text-slate-800 truncate" title={fileName}>{fileName}</p>
                         <p className="text-[11px] text-slate-500">
                           识别出 {fileBusinessAccounts.length} 个账户 · {fileTransactionCount} 笔流水
-                          {isMinerUDirect ? ' · MinerU 提取 + 大模型整理' : ''}
+                          {isQualityPipeline ? ' · 已检查页面方向 · 原文识别与标准整理' : ''}
                         </p>
                       </div>
                     </div>
@@ -1293,21 +764,17 @@ export const Step1Upload: React.FC<Step1Props> = ({
 
         <button
           onClick={onNext}
-          disabled={!hasTransactions || isProcessing || pendingPdfPlans.length > 0}
+          disabled={!hasTransactions || isProcessing}
           className={`inline-flex items-center space-x-2 px-6 py-2.5 rounded-xl text-sm font-medium transition shadow-sm ${
-            hasTransactions && !isProcessing && pendingPdfPlans.length === 0
+            hasTransactions && !isProcessing
               ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/20'
               : 'bg-slate-200 text-slate-400 cursor-not-allowed'
           }`}
-          title={pendingPdfPlans.length > 0
-            ? '请先确认 PDF 分拣方案并完成识别'
-            : !hasTransactions && accounts.length > 0
+          title={!hasTransactions && accounts.length > 0
               ? '当前文件没有可分析的流水明细，请继续添加文件或核对原件'
               : undefined}
         >
-          <span>{pendingPdfPlans.length > 0
-            ? '请先确认 PDF 分拣方案'
-            : !hasTransactions && accounts.length > 0
+          <span>{!hasTransactions && accounts.length > 0
               ? '请先添加含流水明细的文件'
               : '下一步：核对原件'}</span>
           <ArrowRight className="w-4 h-4" />

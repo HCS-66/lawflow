@@ -61,7 +61,7 @@ interface MissingTransactionDraft {
 }
 
 const EVIDENCE_FIELDS = new Set<TransactionEvidenceField>([
-  "accountNumber", "transactionTime", "direction", "amount", "balance",
+  "accountNumber", "accountName", "bankName", "transactionDate", "transactionType", "counterpartyBank", "transactionTime", "direction", "amount", "balance",
   "counterpartyName", "counterpartyAccount", "summary",
 ]);
 
@@ -519,7 +519,7 @@ export const Step2Verify: React.FC<Step2Props> = ({
       if (field === "transactionTime")
         next.transactionDate = String(value).slice(0, 10);
       const qualityIssues = new Set(next.dataQualityIssues || []);
-      if (field === "transactionTime" && /^20\d{2}-\d{2}-\d{2}/.test(String(value)))
+      if ((field === "transactionTime" || field === "transactionDate") && /^20\d{2}-\d{2}-\d{2}/.test(String(value)))
         qualityIssues.delete("INVALID_DATE");
       if (field === "amount" && Number(value) > 0)
         qualityIssues.delete("INVALID_AMOUNT");
@@ -994,7 +994,7 @@ export const Step2Verify: React.FC<Step2Props> = ({
                         </div>
                       </td>
                       <td className="p-3 whitespace-nowrap">
-                        {transaction.transactionTime || "待核对"}
+                        {transaction.transactionTime || transaction.transactionDate || "待核对"}
                       </td>
                       <td
                         className={`p-3 font-semibold ${transaction.direction === "IN" ? "text-emerald-700" : transaction.direction === "OUT" ? "text-rose-700" : "text-amber-700"}`}
@@ -2023,7 +2023,7 @@ function reviewFieldsForTransaction(
     for (const field of EVIDENCE_FIELDS) fields.add(field);
   }
   if (transaction.dataQualityIssues?.includes("INVALID_DATE") || issues.some(issue => issue.category === "INVALID_DATE"))
-    fields.add("transactionTime");
+    fields.add(transaction.extractionMethod === "QWEN_GEMINI_QUALITY" ? "transactionDate" : "transactionTime");
   if (transaction.dataQualityIssues?.includes("UNKNOWN_DIRECTION") || transaction.direction === "UNKNOWN" || issues.some(issue => issue.category === "INVALID_DIRECTION"))
     fields.add("direction");
   if (transaction.dataQualityIssues?.includes("INVALID_AMOUNT") || transaction.amount <= 0 || issues.some(issue => issue.category === "INVALID_AMOUNT"))
@@ -2054,6 +2054,8 @@ function reviewFieldsForTransaction(
 }
 
 function reviewFieldLabel(field: ReviewField): string {
+  const additional: Partial<Record<ReviewField, string>> = { accountName: '本方名称', bankName: '本方银行', transactionDate: '交易日期', transactionType: '交易类型', counterpartyBank: '对方银行' };
+  if (additional[field]) return additional[field]!;
   return field === "accountNumber" ? "本方账号" : field === "counterpartyAccount" ? "对手方账号"
     : field === "transactionTime" ? "交易日期／时间"
     : field === "direction" ? "收入还是支出"

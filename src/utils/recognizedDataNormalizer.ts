@@ -2,6 +2,7 @@ import { BankAccount, StandardTransaction } from '../types/transaction';
 import { accountIdentityKey, isReliableAccountNumber, normalizeAccountIdentityPart } from './accountIdentity';
 import { balanceContinuityIssues, chronologicalTransactions, isBalanceConfirmedZeroSettlement, isCreditCardStatement, isFeeWaiver } from './transactionSequence';
 import { isEvidenceOnly, sameSource } from '../recognition/decisionPolicy';
+import { QUALITY_EXTRACTION, summarizeQualityAccounts } from '../recognition/qualityWebAdapter';
 
 export interface NormalizedRecognizedData {
   accounts: BankAccount[];
@@ -11,6 +12,12 @@ export interface NormalizedRecognizedData {
 export function normalizeRecognizedData(
   inputAccounts: BankAccount[], inputTransactions: StandardTransaction[]
 ): NormalizedRecognizedData {
+  const qualityRows = inputTransactions.filter(t => t.extractionMethod === QUALITY_EXTRACTION);
+  const qualityAccounts = inputAccounts.filter(a => a.qualityPipeline);
+  if (qualityRows.length || qualityAccounts.length) {
+    const legacy = normalizeRecognizedData(inputAccounts.filter(a => !a.qualityPipeline), inputTransactions.filter(t => t.extractionMethod !== QUALITY_EXTRACTION));
+    return { accounts: [...legacy.accounts, ...summarizeQualityAccounts(qualityRows, qualityAccounts)], transactions: [...legacy.transactions, ...qualityRows] };
+  }
   const aliasCandidates = inputAccounts.filter(account => isReliableAccountNumber(account.accountNumber));
   const publicAccounts = inputAccounts.map(account => ({
     ...account,

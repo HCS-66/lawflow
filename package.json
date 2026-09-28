@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.functions.json && tsc -p tsconfig.scripts.json",
-    "build": "npm run typecheck && vite build",
+    "build": "tsx scripts/syncQualityPrompts.ts --check && npm run typecheck && vite build",
     "test": "tsx --test tests/**/*.test.ts",
     "debug:online": "tsx scripts/onlineDebugServer.ts",
     "recognition:replay": "tsx scripts/replayRecognition.ts",
@@ -15,7 +15,8 @@
     "test:recognition-storage": "tsx scripts/testRecognitionStorage.ts",
     "test:recognition-review": "tsx scripts/testRecognitionReview.ts",
     "preview": "vite preview",
-    "deploy": "npm run build && wrangler pages deploy dist --project-name=lawflow"
+    "deploy": "npm run build && wrangler pages deploy dist --project-name=lawflow",
+    "recognition:prompts": "tsx scripts/syncQualityPrompts.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",

@@ -57,9 +57,9 @@ export function applyRowReviewDecision(
   next.lawyerNote = appendNote(next.lawyerNote, decision === 'USE_ORIGINAL'
     ? '律师确认采用原始识别值'
     : '律师确认当前结构化值与原件一致');
-  next.transactionDate = next.transactionTime.slice(0, 10);
+  if (fields.includes('transactionTime') && next.transactionTime) next.transactionDate = next.transactionTime.slice(0, 10);
   next.dataQualityIssues = (next.dataQualityIssues || []).filter(issue => {
-    if (issue === 'INVALID_DATE' && fields.includes('transactionTime') && /^20\d{2}-\d{2}-\d{2}/.test(next.transactionTime)) return false;
+    if (issue === 'INVALID_DATE' && (fields.includes('transactionTime') || fields.includes('transactionDate')) && /^20\d{2}-\d{2}-\d{2}/.test(next.transactionDate)) return false;
     if (issue === 'INVALID_AMOUNT' && fields.includes('amount') && Number.isFinite(next.amount) && next.amount >= 0) return false;
     if (issue === 'UNKNOWN_DIRECTION' && fields.includes('direction') && next.direction !== 'UNKNOWN') return false;
     return true;
