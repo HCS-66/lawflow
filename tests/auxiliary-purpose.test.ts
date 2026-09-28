@@ -24,3 +24,13 @@ test('merchant substrings, wrong direction, other columns and established types 
   const { row, registry } = fixture('银联入账'); row.values[8] = '贷款放款';
   assert.equal(auxiliaryPrintedPurpose(row, table, registry), null);
 });
+test('explicit payment-provider purchase labels in a location column retain their exact source', () => {
+  for (const [label, header] of [['支付宝-消费', '交易地点'], ['微信—消费', '交易地点 Trading Place']]) {
+    const { row, registry } = fixture(label, 'OUT', header);
+    assert.equal(auxiliaryPrintedPurpose(row, table, registry)?.type, '消费');
+  }
+  for (const [label, direction, header] of [['支付宝-消费百货店', 'OUT', '交易地点'], ['支付宝-消费', 'IN', '交易地点'], ['支付宝-消费', 'OUT', '对方名称']]) {
+    const { row, registry } = fixture(label, direction, header);
+    assert.equal(auxiliaryPrintedPurpose(row, table, registry), null);
+  }
+});
