@@ -10,7 +10,9 @@ export async function requestQualityModel(input: QualityRequest, signal: AbortSi
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
   if (!response.ok) {
     let message = `识别服务请求失败（HTTP ${response.status}）`;
-    try { message = (await response.json()).error || message; } catch { /* Never display provider response bodies. */ }
+    const body = await response.text();
+    if (/1102|Worker exceeded resource limits|exceeded.*(?:CPU|memory)/i.test(body)) message = '图像处理超过当前服务器的运行资源限制（Cloudflare 1102），已保存的识别进度仍可继续';
+    else { try { message = JSON.parse(body).error || message; } catch { /* Never display provider response bodies. */ } }
     throw new Error(message);
   }
   if (!response.body) throw new Error('识别服务没有返回数据');
@@ -85,7 +87,14 @@ export async function parsePdfWithQualityPipeline(file: File, onProgress: (p: Ge
         let reply: ModelReply | undefined;
         for (let attempt = 0; attempt < 3; attempt++) {
           try { reply = await requestQualityModel(input, signal); break; }
-          catch (error) { signal.throwIfAborted(); if (attempt === 2 || /配置|401|403/.test(String(error))) throw error; }
+          catch (error) {
+            signal.throwIfAborted(); if (attempt === 2 || /配置|401|403/.test(String(error))) throw error;
+            await new Promise<void>((resolve, reject) => {
+              const stop = () => { clearTimeout(timer); reject(signal.reason); };
+              const timer = setTimeout(() => { signal.removeEventListener('abort', stop); resolve(); }, 1000 * 2 ** attempt);
+              signal.addEventListener('abort', stop, { once: true });
+            });
+          }
         }
         if (!reply) throw new Error('识别未完成');
         // Evidence is required, not an optional resume optimization.

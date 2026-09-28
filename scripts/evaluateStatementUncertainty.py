@@ -14,6 +14,7 @@ from experimentQwenStage2Verbatim import COLUMNS
 def align_rows(gold, result):
     alignment, used, methods = {}, set(), Counter()
     keys = [
+        ('account_timestamp_direction_amount_balance_counterparty', (0, 3, 4, 5, 6, 7, 10)),
         ('core', (0, 6, 7)),
         ('account_date_direction_counterparty', (0, 4, 5, 10)),
         ('account_date_direction_amount', (0, 4, 5, 6)),
@@ -22,9 +23,13 @@ def align_rows(gold, result):
     for name, fields in keys:
         gindex, rindex = defaultdict(list), defaultdict(list)
         for gi, row in enumerate(gold):
+            if name.startswith('account_timestamp') and not row[3]:
+                continue
             if gi not in alignment:
                 gindex[tuple(row[f] for f in fields)].append(gi)
         for ri, row in enumerate(result):
+            if name.startswith('account_timestamp') and not row[3]:
+                continue
             if ri not in used:
                 rindex[tuple(row[f] for f in fields)].append(ri)
         for key, indices in gindex.items():

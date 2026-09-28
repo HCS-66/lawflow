@@ -408,6 +408,20 @@ export const Step1Upload: React.FC<Step1Props> = ({
     setStatusText(`已删除 ${fileName} 的识别结果`);
   };
 
+  const downloadRecognitionRecord = async (account: BankAccount) => {
+    try {
+      if (!account.sourceDocumentId) throw new Error('这个文件没有可下载的识别记录');
+      const evidence = await createQualityCheckpointStore(caseId, account.sourceDocumentId, false).loadDelivery();
+      if (!evidence) throw new Error('本机未找到这个文件的原文识别记录，请在完成识别的浏览器中下载');
+      const record = { documentId: account.sourceDocumentId, fileName: account.fileName, exportedAt: new Date().toISOString(), evidence,
+        transactions: transactions.filter(t => t.sourceDocumentId === account.sourceDocumentId),
+        accounts: accounts.filter(a => a.sourceDocumentId === account.sourceDocumentId) };
+      const url = URL.createObjectURL(new Blob([JSON.stringify(record, null, 2)], { type: 'application/json' }));
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = `识别记录_${account.fileName}.json`;
+      document.body.appendChild(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch (error) { setErrorMessage(error instanceof Error ? error.message : '识别记录下载失败'); }
+  };
+
   return (
     <div className="max-w-5xl mx-auto py-8 px-4 sm:px-6 space-y-6">
       {/* Step Header */}
@@ -705,6 +719,9 @@ export const Step1Upload: React.FC<Step1Props> = ({
                         </p>
                       </div>
                     </div>
+                    {isQualityPipeline && <button type="button" onClick={() => downloadRecognitionRecord(firstAccount)}
+                      className="ml-auto px-2.5 py-1.5 text-xs text-blue-700 hover:bg-blue-50 rounded-lg"
+                      title="下载原文照录、来源对应关系和当前核对记录；不包含 PDF 原件">下载识别记录</button>}
                     <button
                       onClick={() => handleRemoveSourceFile(sourceKey, fileName)}
                       className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition flex-shrink-0"

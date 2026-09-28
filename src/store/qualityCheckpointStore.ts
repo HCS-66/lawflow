@@ -6,6 +6,7 @@ export interface QualityCheckpointStore {
   read(key: string): Promise<ModelReply | undefined>;
   write(key: string, reply: ModelReply): Promise<void>;
   saveDelivery(value: unknown): Promise<void>;
+  loadDelivery(): Promise<unknown | undefined>;
 }
 export function createQualityCheckpointStore(caseId: string, documentId: string, forceFresh: boolean): QualityCheckpointStore {
   const user = getCurrentSessionUser()?.id || 'DEFAULT_USER';
@@ -40,6 +41,10 @@ export function createQualityCheckpointStore(caseId: string, documentId: string,
       return record.value;
     },
     write: async (key, reply) => { await access('readwrite', key, reply); },
-    saveDelivery: async value => { await access('readwrite', 'delivery', value); }
+    saveDelivery: async value => { await access('readwrite', 'delivery', value); },
+    loadDelivery: async () => {
+      const record = await access('readonly', 'delivery');
+      return record?.scope === scope ? record.value : undefined;
+    }
   };
 }

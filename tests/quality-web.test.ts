@@ -9,7 +9,7 @@ import { buildQualitySources, stabilizeQualityMapping } from '../src/recognition
 import { normalizeRecognizedData } from '../src/utils/recognizedDataNormalizer';
 import { applyRowReviewDecision } from '../src/review/fieldReview';
 import { buildEvidenceReviewIssues } from '../src/review/buildEvidenceReviewIssues';
-import { runQualityModel } from '../functions/lib/qualityModel';
+import { runQualityModel, validImageBase64 } from '../functions/lib/qualityModel';
 import { qualityPrompts } from '../functions/lib/qualityPrompts.generated';
 import type { TableMappingPlan } from '../src/recognition/tableMapping';
 
@@ -26,6 +26,11 @@ test('Gemini alone cannot drop a page containing text or ink', () => {
   assert.equal(decidePreflight(reading, { darkFraction160: .001, darkFraction210: .001, hasPdfText: false }).blankConfirmed, false);
   assert.equal(decidePreflight(reading, { darkFraction160: 0, darkFraction210: 0, hasPdfText: false }).blankConfirmed, true);
   assert.equal(decidePreflight({ ...reading, pageKind: 'content', uprightCandidate: 'C' }, { darkFraction160: .01, darkFraction210: .02, hasPdfText: true }).clockwiseRotation, 180);
+});
+test('large image validation retains full alphabet and padding validation', () => {
+  assert.equal(validImageBase64('QUJD'.repeat(500_000)), true);
+  for (const value of ['', 'AA=A', 'A===', 'AAA', 'AAAA\nAAA', 'A_AA', 'AAAA=AAA']) assert.equal(validImageBase64(value), false, value);
+  for (const value of ['YQ==', 'YWI=', 'YWJj']) assert.equal(validImageBase64(value), true);
 });
 const sourcePage = { nearTableText: ['某银行', '001234567890'], tables: [{ rows: [['2026-07-10', '支出', '10.00', '100.00', '账户转账', '李某', '009876543210']] }] };
 const mapping: TableMappingPlan = { tables: [{ page: 1, table: 1, kind: 'transactions', accountKind: 'deposit', groups: [[1]], ignored: [], directionCodes: null,

@@ -2,6 +2,12 @@ import { qualityPrompts } from './qualityPrompts.generated';
 import { QUALITY_STAGES, validateQualityResult, type QualityRequest, type ModelReply } from '../../src/recognition/qualityProtocol';
 
 export interface QualityEnvironment { GEMINI_API_KEY?: string; GEMINI_MODEL?: string; DASHSCOPE_API_KEY?: string; QWEN_MODEL?: string }
+/** Scan for invalid bytes without a backtracking match proportional to the image size. */
+export function validImageBase64(value: unknown): value is string {
+  if (typeof value !== 'string' || !value.length || value.length >= 26_000_000 || value.length % 4 !== 0) return false;
+  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+  return !/[^A-Za-z0-9+/]/.test(value.slice(0, value.length - padding));
+}
 export function missingQualityConfig(env: QualityEnvironment) {
   return ['GEMINI_API_KEY', 'DASHSCOPE_API_KEY'].filter(k => {
     const value = env[k as keyof QualityEnvironment]; return !value || /your[-_]/i.test(value);
@@ -12,11 +18,11 @@ export function validateQualityRequest(value: any): asserts value is QualityRequ
   if (value.stage === 'mapping') {
     if (value.images?.length || !Array.isArray(value.source) || !value.source.length || value.source.length > 1500) throw new Error('整理步骤只接受完整原文列表');
   } else if (value.source !== undefined || !Array.isArray(value.images) || value.images.length !== (value.stage === 'preflight' ? 4 : 1)
-    || !value.images.every((s: unknown) => typeof s === 'string' && s.length < 26_000_000 && /^[A-Za-z0-9+/]+={0,2}$/.test(s))) throw new Error('图像读取必须使用完整页面');
+    || !value.images.every(validImageBase64)) throw new Error('图像读取必须使用完整页面');
 }
 
 export async function runQualityModel(input: QualityRequest, env: QualityEnvironment, signal: AbortSignal, fetcher = fetch): Promise<ModelReply> {
-  validateQualityRequest(input);
+  // The HTTP route validates the envelope exactly once before starting the stream.
   const missing = missingQualityConfig(env);
   if (missing.length) throw new Error(`识别服务缺少配置：${missing.join('、')}`);
   const policy = qualityPrompts[input.stage];
