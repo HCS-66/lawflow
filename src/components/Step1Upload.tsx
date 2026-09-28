@@ -543,9 +543,9 @@ export const Step1Upload: React.FC<Step1Props> = ({
                         </span>
                       )}
                     </div>
-                    <span>
+                    {progressInfo.totalTransactions > 0 ? <span>
                       当前已读取约：<strong className="text-emerald-700 text-xs">{progressInfo.totalTransactions}</strong> 笔
-                    </span>
+                    </span> : <span>流水笔数将在整理完成后显示</span>}
                   </div>
                 </div>
               )}
