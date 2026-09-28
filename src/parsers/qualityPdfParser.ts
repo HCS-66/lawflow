@@ -1,13 +1,14 @@
 import { createPdfPageImageRenderer } from './pdfPageImageRenderer';
 import type { GeminiProgressInfo } from './geminiPdfParser';
 import { runQualityWorkflow } from '../recognition/qualityWorkflow';
-import { QUALITY_REVISION, validateQualityResult, type ModelReply, type QualityRequest } from '../recognition/qualityProtocol';
+import { QUALITY_REVISION, qualityWireRequest, validateQualityResult, type ModelReply, type QualityRequest } from '../recognition/qualityProtocol';
 import type { QualityCheckpointStore } from '../store/qualityCheckpointStore';
 import { qualityToWeb } from '../recognition/qualityWebAdapter';
 
 export async function requestQualityModel(input: QualityRequest, signal: AbortSignal): Promise<ModelReply> {
+  const wire = qualityWireRequest(input);
   const response = await fetch('/api/recognize-quality', { method: 'POST', signal,
-    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+    headers: { 'Content-Type': wire.contentType }, body: wire.body });
   if (!response.ok) {
     let message = `识别服务请求失败（HTTP ${response.status}）`;
     const body = await response.text();

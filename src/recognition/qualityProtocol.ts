@@ -8,6 +8,13 @@ export interface PreflightReading { pageKind: 'blank' | 'content' | 'uncertain';
 export interface PageMetrics { darkFraction160: number; darkFraction210: number; hasPdfText: boolean }
 export interface ModelReply { result: any; finishReason: string; model: string; usage?: unknown; promptSHA256: string }
 export interface QualityRequest { stage: QualityStage; images?: string[]; source?: unknown }
+export const QUALITY_IMAGE_CONTENT_TYPE = 'application/x-lawflow-page-images';
+/** Keep image bytes out of JSON parsing/stringifying in the edge proxy. The logical input and cache hash are unchanged. */
+export function qualityWireRequest(input: QualityRequest) {
+  return input.stage === 'mapping'
+    ? { contentType: 'application/json', body: JSON.stringify(input) }
+    : { contentType: QUALITY_IMAGE_CONTENT_TYPE, body: [input.stage, ...(input.images || [])].join('\n') };
+}
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every(x => typeof x === 'string');
 const exactKeys = (v: any, keys: string[]) => v && Object.keys(v).sort().join(',') === keys.sort().join(',');
 

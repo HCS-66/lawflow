@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { decidePreflight, type QualityRequest } from '../src/recognition/qualityProtocol';
+import { decidePreflight, qualityWireRequest, type QualityRequest } from '../src/recognition/qualityProtocol';
 import { runQualityWorkflow } from '../src/recognition/qualityWorkflow';
 import { qualityToWeb } from '../src/recognition/qualityWebAdapter';
 import { buildQualitySources, stabilizeQualityMapping } from '../src/recognition/qualitySources';
 import { normalizeRecognizedData } from '../src/utils/recognizedDataNormalizer';
 import { applyRowReviewDecision } from '../src/review/fieldReview';
 import { buildEvidenceReviewIssues } from '../src/review/buildEvidenceReviewIssues';
-import { runQualityModel, validImageBase64 } from '../functions/lib/qualityModel';
+import { decodeQualityRequest, runQualityModel, validImageBase64 } from '../functions/lib/qualityModel';
 import { qualityPrompts } from '../functions/lib/qualityPrompts.generated';
 import type { TableMappingPlan } from '../src/recognition/tableMapping';
 
@@ -31,6 +31,29 @@ test('large image validation retains full alphabet and padding validation', () =
   assert.equal(validImageBase64('QUJD'.repeat(500_000)), true);
   for (const value of ['', 'AA=A', 'A===', 'AAA', 'AAAA\nAAA', 'A_AA', 'AAAA=AAA']) assert.equal(validImageBase64(value), false, value);
   for (const value of ['YQ==', 'YWI=', 'YWJj']) assert.equal(validImageBase64(value), true);
+});
+test('image transport preserves all bytes and rejects injected JSON or extra image lines', () => {
+  const input: QualityRequest = { stage: 'primary', images: ['QUJD'.repeat(500_000)] };
+  const wire = qualityWireRequest(input);
+  assert.deepEqual(decodeQualityRequest(wire.body, wire.contentType), input);
+  assert.deepEqual(decodeQualityRequest(JSON.stringify(input), 'application/json'), input);
+  for (const invalid of ['primary\nYQ==\nYQ==', 'primary\nYQ=="}', 'mapping\nYQ==', 'unknown\nYQ=='])
+    assert.throws(() => decodeQualityRequest(invalid, wire.contentType));
+});
+test('compact Gemini transport keeps all four full images, ordering, prompt and generation settings', async () => {
+  const input: QualityRequest = { stage: 'preflight', images: ['YQ==', 'Yg==', 'Yw==', 'ZA=='] };
+  const wire = qualityWireRequest(input); const decoded = decodeQualityRequest(wire.body, wire.contentType);
+  let request: any;
+  const value = { pageKind: 'content', uprightCandidate: 'B', reason: 'test' };
+  const fetcher = (async (_url: any, init: any) => {
+    request = JSON.parse(init.body);
+    return new Response('data: ' + JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(value) }] }, finishReason: 'STOP' }] }) + '\n\n');
+  }) as typeof fetch;
+  const result = await runQualityModel(decoded, { GEMINI_API_KEY: 'test', DASHSCOPE_API_KEY: 'test' }, new AbortController().signal, fetcher);
+  assert.deepEqual(result.result, value);
+  assert.deepEqual(request.contents, [{ role: 'user', parts: [{ text: qualityPrompts.preflight.prompt },
+    ...input.images!.flatMap((data, i) => [{ text: `候选${'ABCD'[i]}` }, { inlineData: { mimeType: 'image/jpeg', data } }]) ] }]);
+  assert.deepEqual(request.generationConfig, { temperature: 0, thinkingConfig: { thinkingLevel: 'low' }, responseMimeType: 'application/json', maxOutputTokens: 2048 });
 });
 const sourcePage = { nearTableText: ['某银行', '001234567890'], tables: [{ rows: [['2026-07-10', '支出', '10.00', '100.00', '账户转账', '李某', '009876543210']] }] };
 const mapping: TableMappingPlan = { tables: [{ page: 1, table: 1, kind: 'transactions', accountKind: 'deposit', groups: [[1]], ignored: [], directionCodes: null,
@@ -88,6 +111,7 @@ test('server uses Qwen only for transcription and rejects unfinished output', as
   const fetcher = (async (_url: any, init: any) => { request = JSON.parse(init.body); return Response.json({ choices: [{ finish_reason: 'length', message: { content: '{}' } }] }); }) as typeof fetch;
   await assert.rejects(runQualityModel({ stage: 'primary', images: ['aGVsbG8='] }, { GEMINI_API_KEY: 'test', DASHSCOPE_API_KEY: 'test' }, new AbortController().signal, fetcher), /未完成/);
   assert.equal(request.messages[0].content[0].text, qualityPrompts.primary.prompt);
+  assert.equal(request.messages[0].content[1].image_url.url, 'data:image/jpeg;base64,aGVsbG8=');
   assert.equal(request.reasoning_effort, 'low');
 });
 

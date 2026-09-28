@@ -1,5 +1,5 @@
 import { qualityPrompts } from './qualityPrompts.generated';
-import { QUALITY_STAGES, validateQualityResult, type QualityRequest, type ModelReply } from '../../src/recognition/qualityProtocol';
+import { QUALITY_STAGES, QUALITY_IMAGE_CONTENT_TYPE, validateQualityResult, type QualityRequest, type ModelReply } from '../../src/recognition/qualityProtocol';
 
 export interface QualityEnvironment { GEMINI_API_KEY?: string; GEMINI_MODEL?: string; DASHSCOPE_API_KEY?: string; QWEN_MODEL?: string }
 /** Scan for invalid bytes without a backtracking match proportional to the image size. */
@@ -21,6 +21,36 @@ export function validateQualityRequest(value: any): asserts value is QualityRequ
     || !value.images.every(validImageBase64)) throw new Error('图像读取必须使用完整页面');
 }
 
+export function decodeQualityRequest(body: string, contentType: string): QualityRequest {
+  let input: any;
+  if (contentType.split(';')[0].trim() === QUALITY_IMAGE_CONTENT_TYPE) {
+    const [stage, ...images] = body.split('\n'); input = { stage, images };
+    if (stage === 'mapping') throw new Error('整理步骤必须使用完整原文列表');
+  } else input = JSON.parse(body); // Compatibility for pages loaded before deployment.
+  validateQualityRequest(input); return input;
+}
+
+/** Called only after decodeQualityRequest validates every base64 byte. Validated
+ * image strings contain no JSON metacharacters and can be copied unchanged. */
+function qwenBody(input: QualityRequest, model: string, prompt: string) {
+  const config = JSON.stringify({ model, response_format: { type: 'json_object' }, reasoning_effort: 'low',
+    vl_high_resolution_images: true, temperature: 0, max_tokens: 16000 });
+  return config.slice(0, -1) + ',"messages":[{"role":"user","content":[{"type":"text","text":'
+    + JSON.stringify(prompt) + '},{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,'
+    + input.images![0] + '"}}]}]}';
+}
+function geminiBody(input: QualityRequest, prompt: string) {
+  const parts = [JSON.stringify({ text: prompt })];
+  if (input.stage === 'mapping') parts.push(JSON.stringify({ text: JSON.stringify(input.source) }));
+  else input.images!.forEach((data, index) => {
+    if (input.stage === 'preflight') parts.push(JSON.stringify({ text: `候选${'ABCD'[index]}` }));
+    parts.push('{"inlineData":{"mimeType":"image/jpeg","data":"' + data + '"}}');
+  });
+  const generationConfig = { temperature: 0, thinkingConfig: { thinkingLevel: 'low' }, responseMimeType: 'application/json',
+    maxOutputTokens: input.stage === 'mapping' ? 65536 : input.stage === 'preflight' ? 2048 : 24000 };
+  return '{"contents":[{"role":"user","parts":[' + parts.join(',') + ']}],"generationConfig":' + JSON.stringify(generationConfig) + '}';
+}
+
 export async function runQualityModel(input: QualityRequest, env: QualityEnvironment, signal: AbortSignal, fetcher = fetch): Promise<ModelReply> {
   // The HTTP route validates the envelope exactly once before starting the stream.
   const missing = missingQualityConfig(env);
@@ -33,25 +63,16 @@ export async function runQualityModel(input: QualityRequest, env: QualityEnviron
   if (isQwen) {
     const response = await fetcher('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
       method: 'POST', signal, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.DASHSCOPE_API_KEY}` },
-      body: JSON.stringify({ model, messages: [{ role: 'user', content: [{ type: 'text', text: policy.prompt },
-        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${input.images![0]}` } }] }],
-      response_format: { type: 'json_object' }, reasoning_effort: 'low', vl_high_resolution_images: true, temperature: 0, max_tokens: 16000 })
+      body: qwenBody(input, model, policy.prompt)
     });
     if (!response.ok) throw new Error(`Qwen 服务请求失败（HTTP ${response.status}）`);
     const value: any = await response.json();
     text = value.choices?.[0]?.message?.content || ''; finishReason = value.choices?.[0]?.finish_reason || ''; usage = value.usage;
     if (finishReason !== 'stop') throw new Error('Qwen 输出未完成，已保留之前的页面进度');
   } else {
-    const parts: any[] = [{ text: policy.prompt }];
-    if (input.stage === 'mapping') parts.push({ text: JSON.stringify(input.source) });
-    else input.images!.forEach((data, index) => {
-      if (input.stage === 'preflight') parts.push({ text: `候选${'ABCD'[index]}` });
-      parts.push({ inlineData: { mimeType: 'image/jpeg', data } });
-    });
     const response = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`, {
       method: 'POST', signal, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY! },
-      body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { temperature: 0, thinkingConfig: { thinkingLevel: 'low' },
-        responseMimeType: 'application/json', maxOutputTokens: input.stage === 'mapping' ? 65536 : input.stage === 'preflight' ? 2048 : 24000 } })
+      body: geminiBody(input, policy.prompt)
     });
     if (!response.ok) throw new Error(`Gemini 服务请求失败（HTTP ${response.status}）`);
     if (!response.body) throw new Error('Gemini 返回空响应');

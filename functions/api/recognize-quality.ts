@@ -1,5 +1,5 @@
 import { guardParseRequest, secureResponseHeaders } from '../lib/requestSecurity';
-import { missingQualityConfig, runQualityModel, validateQualityRequest } from '../lib/qualityModel';
+import { decodeQualityRequest, missingQualityConfig, runQualityModel } from '../lib/qualityModel';
 import { QUALITY_REVISION, type QualityRequest } from '../../src/recognition/qualityProtocol';
 import { qualityPrompts } from '../lib/qualityPrompts.generated';
 
@@ -18,7 +18,7 @@ export async function onRequestPost(context: any): Promise<Response> {
   try {
     const body = await context.request.text();
     if (body.length > 72 * 1024 * 1024) return new Response('页面请求过大', { status: 413 });
-    input = JSON.parse(body); validateQualityRequest(input);
+    input = decodeQualityRequest(body, context.request.headers.get('Content-Type') || '');
   } catch { return new Response('识别请求格式错误', { status: 400 }); }
   const missing = missingQualityConfig(context.env);
   if (missing.length) return Response.json({ error: `识别服务缺少配置：${missing.join('、')}` }, { status: 503, headers: secureResponseHeaders });
