@@ -49,9 +49,11 @@ export async function runQualityWorkflow(io: QualityWorkflowIO) {
       io.progress(`照录整页原文：第 ${page}/${io.totalPages} 页`, 18 + completed / io.totalPages * 48);
       const image = await io.image(page, decision.clockwiseRotation, 350);
       // Independent reader receives only the image, never the primary transcript.
-      primary[page - 1] = (await io.call({ stage: 'primary', images: [image] }, page)).result;
-      independent[page] = (await io.call({ stage: 'independent', images: [image] }, page)).result;
-      context[page - 1] = (await io.call({ stage: 'context', images: [image] }, page)).result;
+      const readings = await Promise.allSettled((['primary', 'independent', 'context'] as const)
+        .map(stage => io.call({ stage, images: [image] }, page)));
+      const failed = readings.find((r): r is PromiseRejectedResult => r.status === 'rejected'); if (failed) throw failed.reason;
+      const values = readings.map(r => (r as PromiseFulfilledResult<ModelReply>).value.result);
+      [primary[page - 1], independent[page], context[page - 1]] = values;
       if (decision.orientationUncertain) {
         independent[page] = { ...independent[page], coverage: 'uncertain',
           pageIssues: [...independent[page].pageIssues, '页面方向未能确认，请查看整页原件'] };

@@ -209,6 +209,7 @@ export const Step1Upload: React.FC<Step1Props> = ({
         let importedTransactionCount = 0;
         let importedAccountCount = 0;
         let incompletePages: number[] = [];
+        let incompleteDocument = false;
         let sourceStorageWarning = false;
         setStatusText(`正在校验原始文件“${file.name}”…`);
         const source = await identifySourceDocument(file);
@@ -283,6 +284,7 @@ export const Step1Upload: React.FC<Step1Props> = ({
           importedTransactionCount = canonical.transactions.length;
           importedAccountCount = businessAccounts(canonical.accounts).length;
           incompletePages = incompleteRecognitionPages(canonical.accounts);
+          incompleteDocument = canonical.accounts.some(account => account.parseStatus === 'INCOMPLETE');
         } else {
           throw new Error('不支持的文件格式');
         }
@@ -294,11 +296,11 @@ export const Step1Upload: React.FC<Step1Props> = ({
           retryable: true,
           transactionCount: 0,
           accountCount: importedAccountCount
-        } : incompletePages.length ? {
+        } : incompleteDocument || incompletePages.length ? {
           status: 'WARNING',
           title: `“${file.name}”仅完成部分识别`,
-          message: `已保留 ${importedTransactionCount} 笔流水和 ${importedAccountCount} 个账户，但仍有 ${incompletePages.length} 页未能可靠识别。`,
-          impact: `未完成页面：第 ${incompletePages.join('、')} 页。请点击“继续未完成页”补齐；补齐或人工录入前不能进入资金分析。`,
+          message: `已保留 ${importedTransactionCount} 笔流水和 ${importedAccountCount} 个账户，但页面覆盖或交易行数仍存在未解决差异。`,
+          impact: `${incompletePages.length ? `未完成页面：第 ${incompletePages.join('、')} 页。` : ''}请进入原件核对查看具体问题，或重新识别；确认完整前不能进入资金分析。`,
           retryable: true,
           transactionCount: importedTransactionCount,
           accountCount: importedAccountCount,

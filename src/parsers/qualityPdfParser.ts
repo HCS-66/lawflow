@@ -73,7 +73,12 @@ export async function parsePdfWithQualityPipeline(file: File, onProgress: (p: Ge
       image: async (page, rotation, dpi) => { signal.throwIfAborted(); return base64((await renderer.renderPage(page, rotation, dpi / 72)).file); },
       call: async (input, page) => {
         signal.throwIfAborted(); const key = `${input.stage}:${page}:${await hash(JSON.stringify(input))}`;
-        try { const saved = await options.store.read(key); if (saved) { validateQualityResult(input.stage, saved.result); return saved; } } catch { warn(); }
+        const expectedModel = ['primary', 'context', 'primaryRecovery'].includes(input.stage) ? status.models?.qwen : status.models?.gemini;
+        try { const saved = await options.store.read(key);
+          if (saved && saved.promptSHA256 === status.prompts?.[input.stage] && saved.model === expectedModel) {
+            validateQualityResult(input.stage, saved.result); return saved;
+          }
+        } catch { warn(); }
         let reply: ModelReply | undefined;
         for (let attempt = 0; attempt < 3; attempt++) {
           try { reply = await requestQualityModel(input, signal); break; }

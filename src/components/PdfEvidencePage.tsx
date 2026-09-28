@@ -53,7 +53,8 @@ export const PdfEvidencePage: React.FC<PdfEvidencePageProps> = ({ file, pageNumb
     (async () => {
       try {
         const pdfjs = await getPdfjs();
-        loadingTask = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
+        loadingTask = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()),
+          cMapUrl: '/pdfjs/cmaps/', cMapPacked: true, standardFontDataUrl: '/pdfjs/standard_fonts/' });
         const document = await loadingTask.promise;
         if (cancelled) return;
         setPageCount(document.numPages);

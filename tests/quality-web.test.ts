@@ -62,6 +62,7 @@ test('web bridge preserves all 12 columns and field-specific checks across norma
   const normalized = normalizeRecognizedData(web.accounts, web.transactions), row = normalized.transactions[0];
   assert.equal(row.transactionDate, '2026-07-10'); assert.equal(row.transactionTime, ''); assert.equal(row.accountNumber, '001234567890');
   assert.equal(row.counterpartyAccount, '009876543210'); assert.equal(row.transactionType, '');
+  assert.equal(row.fieldEvidence?.amount?.originalValue, row.fieldEvidence?.amount?.currentValue);
   assert.deepEqual(row.candidateReview?.requiredFields, ['transactionType']);
   assert.equal(buildEvidenceReviewIssues(normalized.accounts[0], normalized.transactions).filter(i => i.severity === 'REQUIRED').length, 1);
   const wrongField = applyRowReviewDecision(row, ['amount'], 'ACCEPT_CURRENT');

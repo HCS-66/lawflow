@@ -57,14 +57,15 @@ export function qualityToWeb(result: QualityDeliveryInput, registry: SourceRegis
         !['IN', 'OUT'].includes(direction) ? 'UNKNOWN_DIRECTION' as const : undefined].filter((x): x is NonNullable<typeof x> => !!x)
     };
     transaction.fieldEvidence = Object.fromEntries(STATEMENT_COLUMNS.map((field, col) => [field, {
-      originalValue: row.values[col], currentValue: transaction[field] ?? '', origin: 'EXTRACTION',
+      originalValue: (field === 'amount' || field === 'balance') && row.values[col] !== '' ? Number(row.values[col]) : row.values[col],
+      currentValue: transaction[field] ?? '', origin: 'EXTRACTION',
       decision: requiredFields.includes(field) ? 'UNRESOLVED' : 'ACCEPTED', reason: pending.filter(i => i.field === field).map(i => i.message).join('；')
     }]));
     return transaction;
   });
   const documentIssues: EvidenceReviewIssue[] = result.pending.filter(i => !i.outputRows.length).map(i => ({
     id: `${run}:${i.id}`, category: 'PAGE_INTEGRITY', severity: i.severity === 'ADVISORY' ? 'ADVISORY' : 'REQUIRED',
-    title: i.severity === 'ADVISORY' ? '页面读取提示' : '页面完整性待确认', description: i.message,
+    title: i.severity === 'ADVISORY' ? '页面读取提示' : result.complete ? '页面完整性待确认' : 'PDF 解析不完整', description: i.message,
     instructions: ['对照完整原件核对相关页面和交易行数', '如有遗漏，请重新识别或补录'],
     pageNumber: i.sourcePages?.[0] || registry.rows[i.sourceRows[0]]?.page || registry.cells[i.sourceCells[0]]?.page,
     transactionIds: [], status: 'PENDING'

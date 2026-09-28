@@ -1,11 +1,15 @@
 import { guardParseRequest, secureResponseHeaders } from '../lib/requestSecurity';
 import { missingQualityConfig, runQualityModel, validateQualityRequest } from '../lib/qualityModel';
 import { QUALITY_REVISION, type QualityRequest } from '../../src/recognition/qualityProtocol';
+import { qualityPrompts } from '../lib/qualityPrompts.generated';
 
 export async function onRequestGet(context: any): Promise<Response> {
   const rejected = guardParseRequest(context); if (rejected) return rejected;
   const missing = missingQualityConfig(context.env);
-  return Response.json({ revision: QUALITY_REVISION, ready: !missing.length, missing }, { headers: secureResponseHeaders, status: missing.length ? 503 : 200 });
+  return Response.json({ revision: QUALITY_REVISION, ready: !missing.length, missing,
+    prompts: Object.fromEntries(Object.entries(qualityPrompts).map(([stage, p]) => [stage, p.sha256])),
+    models: { gemini: context.env.GEMINI_MODEL || 'gemini-3.8-flash', qwen: context.env.QWEN_MODEL || 'qwen3.8-flash' }
+  }, { headers: secureResponseHeaders, status: missing.length ? 503 : 200 });
 }
 
 export async function onRequestPost(context: any): Promise<Response> {
@@ -29,7 +33,7 @@ export async function onRequestPost(context: any): Promise<Response> {
       const heartbeat = setInterval(() => send({ type: 'progress', stage: input.stage }), 3000);
       send({ type: 'progress', stage: input.stage });
       runQualityModel(input, context.env, abort.signal).then(reply => send({ type: 'complete', ...reply }), error =>
-        send({ type: 'error', message: abort.signal.aborted ? '识别请求已停止或超时，可继续已保存的进度' : error.message }))
+        send({ type: 'error', message: abort.signal.aborted ? '识别请求超时，可继续已保存的进度' : error.message }))
         .finally(() => { clearInterval(heartbeat); clearTimeout(timeout); context.request.signal.removeEventListener('abort', cancel); if (open) { open = false; controller.close(); } });
     },
     cancel() { clearTimeout(timeout); cancel(); }
