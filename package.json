@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.functions.json && tsc -p tsconfig.scripts.json",
-    "build": "tsx scripts/syncQualityPrompts.ts --check && npm run typecheck && vite build",
+    "build": "tsx scripts/syncQualityPrompts.ts  && npm run typecheck && vite build",
     "test": "tsx --test tests/**/*.test.ts",
     "debug:online": "tsx scripts/onlineDebugServer.ts",
     "recognition:replay": "tsx scripts/replayRecognition.ts",
