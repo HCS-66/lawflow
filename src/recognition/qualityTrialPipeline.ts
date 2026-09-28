@@ -24,6 +24,7 @@ export function runQualityTrial(mapping: TableMappingPlan, registry: SourceRegis
   const independent = recovery.pages;
   const transformations: Array<{ observation: number; field: number; before: string; after: string; basis: string; sources: string[] }> = [];
   const typeUncertainties: number[] = [];
+  const financialIncomeUncertainties: number[] = [];
   const change = (i: number, field: number, value: string, basis: string, sources: string[]) => {
     if (rows[i].values[field] === value) return;
     transformations.push({ observation: i + 1, field, before: rows[i].values[field], after: value, basis, sources });
@@ -183,6 +184,13 @@ export function runQualityTrial(mapping: TableMappingPlan, registry: SourceRegis
       change(i, 8, type, 'LITERAL_BUSINESS_LABEL_IN_AUXILIARY_COLUMN_WITH_MATCHING_DIRECTION', [`cell:${cell.id}`]);
       row.fields[8].push({ id: cell.id, text: cell.text, normalized: cell.text });
     }
+    // A payment channel does not distinguish financing, redemption or other financial proceeds.
+    if (context.accountKind === 'deposit' && row.values[5] === 'IN' && row.values[8] === '第三方支付'
+      && /(?:信托|消费金融|小额贷款|融资租赁)(?:股份有限|有限责任|有限|股份)?公司/.test(semanticText(row.values[9]))) {
+      change(i, 8, '', 'FINANCIAL_INSTITUTION_INCOME_CHANNEL_IS_NOT_PURPOSE',
+        [...row.fields[8], ...row.fields[9]].map(s => `cell:${s.id}`));
+      financialIncomeUncertainties.push(i);
+    }
     if (['消费', '退款', '缴费'].includes(row.values[8])) {
       const headers = table.ignored.filter(s => s.kind === 'header').flatMap(s => s.r).map(id => registry.rows[id]);
       const merchantColumns = new Set(headers.flatMap(r => r.cells.flatMap((id, col) =>
@@ -257,6 +265,10 @@ export function runQualityTrial(mapping: TableMappingPlan, registry: SourceRegis
   const pairForObservation = new Map(comparison.pairs.map(p => [p.outputRow, p]));
   const resolved: Array<{ code: string; field: string | null; event: number; observations: number[]; basis: string }> = [];
   const pending: AssemblyIssue[] = [];
+  for (const i of financialIncomeUncertainties) pending.push({ id: `FINANCIAL_INCOME_TYPE_${i + 1}`, code: 'FINANCIAL_INCOME_PURPOSE_UNRESOLVED',
+    field: 'transactionType', severity: 'REQUIRED', outputRows: [eventForObservation.get(i + 1)!], sourceRows: rows[i].sourceRows,
+    sourceCells: [...rows[i].fields[8], ...rows[i].fields[9]].map(s => s.id),
+    message: '对方为金融机构，原文只说明支付通道，无法确定放款、赎回或其他资金用途；请确认交易类型' });
   for (const i of typeUncertainties) pending.push({ id: `REPAYMENT_TYPE_${i + 1}`, code: 'REPAYMENT_KIND_UNRESOLVED',
     field: 'transactionType', severity: 'REQUIRED', outputRows: [eventForObservation.get(i + 1)!], sourceRows: rows[i].sourceRows,
     sourceCells: [...rows[i].fields[8], ...rows[i].fields[9]].map(s => s.id),

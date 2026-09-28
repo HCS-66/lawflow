@@ -38,6 +38,20 @@ def align_rows(gold, result):
                 alignment[gi] = ri
                 used.add(ri)
                 methods[name] += 1
+    # Content-identical occurrences can be counted without claiming distinct source identity.
+    # Keep multiplicity: one output occurrence can never satisfy two expected occurrences.
+    gindex, rindex = defaultdict(list), defaultdict(list)
+    for gi, row in enumerate(gold):
+        if gi not in alignment:
+            gindex[tuple(row)].append(gi)
+    for ri, row in enumerate(result):
+        if ri not in used:
+            rindex[tuple(row)].append(ri)
+    for key, indices in gindex.items():
+        for gi, ri in zip(indices, rindex[key]):
+            alignment[gi] = ri
+            used.add(ri)
+            methods['identical_12_column_occurrence'] += 1
     return alignment, methods
 
 

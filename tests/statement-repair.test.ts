@@ -97,6 +97,18 @@ test('uncertain repayment preserves an existing candidate type while adding a fi
   assert.ok(result.pending.some(i => i.code === 'REPAYMENT_KIND_UNRESOLVED' && i.field === 'transactionType' && i.outputRows.includes(1)));
 });
 
+test('financial institution income cannot be classified from a payment channel alone', () => {
+  for (const description of ['银联入账', '贷款放款']) {
+    const { registry, mapping, independent } = fixture();
+    registry.cells[16].text = description;
+    registry.cells[17].text = '009876543210/示例信托股份有限公司';
+    independent[1].rows[1].values[6] = '示例信托股份有限公司';
+    const result = runQualityTrial(mapping, registry, independent, { singleIssuerDocument: false });
+    assert.equal(result.rows[1].values[8], description === '银联入账' ? '' : '贷款放款');
+    assert.equal(result.pending.some(i => i.code === 'FINANCIAL_INCOME_PURPOSE_UNRESOLVED' && i.outputRows.includes(2)), description === '银联入账');
+  }
+});
+
 test('an existing type cannot silence missing party evidence on a cash transaction', () => {
   const { registry, mapping, independent } = fixture();
   registry.cells[10].text = '现金支取'; registry.cells[11].text = ''; registry.cells[12].text = '';
