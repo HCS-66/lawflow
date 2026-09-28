@@ -11,8 +11,9 @@ import { collectAccountIssuers } from './accountIssuerEvidence';
 import { recoverSignedIncome } from './signedAmountDirection';
 import { printedTransactionType } from './printedTransactionType';
 import { applyCriticalFieldRecovery } from './criticalFieldRecovery';
+import { auxiliaryPrintedPurpose } from './auxiliaryPurpose';
 
-/** Experimental pipeline; explicit scope is supplied by the document inventory, not inferred from an account prefix. */
+/** Shared web/replay pipeline; document scope is explicit, never inferred from an account prefix. */
 export function runQualityTrial(mapping: TableMappingPlan, registry: SourceRegistry,
   originalIndependent: Record<number, IndependentPage>, options: { singleIssuerDocument: boolean; issuerBankName?: string }, accountRecovery: Record<number, FocusedAccounts> = {},
   criticalRereads: Record<number, IndependentPage> = {}) {
@@ -176,6 +177,12 @@ export function runQualityTrial(mapping: TableMappingPlan, registry: SourceRegis
     }
     if (printedType?.requiresReview) typeUncertainties.push(i);
     const table = mapping.tables.find(t => t.page === context.page && t.table === context.table)!;
+    const auxiliaryPurpose = printedType?.requiresReview ? null : auxiliaryPrintedPurpose(row, table, registry);
+    if (auxiliaryPurpose) {
+      const { cell, type } = auxiliaryPurpose;
+      change(i, 8, type, 'LITERAL_BUSINESS_LABEL_IN_AUXILIARY_COLUMN_WITH_MATCHING_DIRECTION', [`cell:${cell.id}`]);
+      row.fields[8].push({ id: cell.id, text: cell.text, normalized: cell.text });
+    }
     if (['消费', '退款', '缴费'].includes(row.values[8])) {
       const headers = table.ignored.filter(s => s.kind === 'header').flatMap(s => s.r).map(id => registry.rows[id]);
       const merchantColumns = new Set(headers.flatMap(r => r.cells.flatMap((id, col) =>

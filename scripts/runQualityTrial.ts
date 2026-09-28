@@ -60,7 +60,7 @@ mkdirSync(outputDir, { recursive: true });
 const snapshot = resolve(outputDir, 'policy-snapshot');
 mkdirSync(snapshot);
 const policies: Record<string, string> = {};
-for (const name of ['sourceAssembly', 'sourceFragments', 'semanticText', 'accountIssuerEvidence', 'rowGrouping', 'columnRecovery', 'tableMapping', 'signedAmountDirection', 'printedTransactionType', 'criticalFieldRecovery', 'independentComparison', 'observationConsolidation', 'unmergedViews', 'accountRecovery', 'accountInventoryBinding', 'printedOwnerPrefixes', 'qualityTrialPipeline', 'acceptanceEvaluation']) {
+for (const name of ['sourceAssembly', 'sourceFragments', 'semanticText', 'accountIssuerEvidence', 'rowGrouping', 'columnRecovery', 'tableMapping', 'signedAmountDirection', 'printedTransactionType', 'auxiliaryPurpose', 'criticalFieldRecovery', 'independentComparison', 'observationConsolidation', 'unmergedViews', 'accountRecovery', 'accountInventoryBinding', 'printedOwnerPrefixes', 'qualityTrialPipeline', 'acceptanceEvaluation']) {
   const bytes = readFileSync(resolve('src/recognition', `${name}.ts`));
   writeFileSync(resolve(snapshot, `${name}.ts`), bytes);
   policies[name] = createHash('sha256').update(bytes).digest('hex');

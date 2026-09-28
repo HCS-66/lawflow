@@ -53,6 +53,11 @@ export function importErrorForUser(error: unknown, fileName: string): UserFacing
     };
   }
 
+  if (/Cloudflare\s*1102|服务器的运行资源限制/i.test(details)) {
+    return { ...base, message: '图像处理超过了当前服务器的运行资源限制，已保存的识别进度仍可继续。',
+      impact: '本次文件尚未写入案件；请重试，若反复出现需调整识别服务的运行资源。',
+      retryable: true, diagnosticCode: 'WORKER_RESOURCE_LIMIT' };
+  }
   if (/75\s*MB|文件体积|413|超过.*限制/i.test(details)) {
     return {
       ...base,

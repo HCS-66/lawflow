@@ -56,7 +56,7 @@ export async function parsePdfWithQualityPipeline(file: File, onProgress: (p: Ge
   try {
     const delivery = await runQualityWorkflow({ totalPages: renderer.totalPages, signal,
       progress: (statusText, next, totalTransactions = 0) => {
-        percent = Math.max(percent, next); onProgress({ statusText, percent, totalTransactions, isStreaming: next < 100 });
+        percent = Math.max(percent, Math.round(next)); onProgress({ statusText, percent, totalTransactions, isStreaming: next < 100 });
       },
       preflightImages: async page => {
         signal.throwIfAborted();

@@ -22,6 +22,16 @@ test('oversized upload errors provide a concrete recovery action', () => {
   assert.match(result.message, /压缩|拆分/);
 });
 
+test('server resource exhaustion is retryable and does not mislabel a file as oversized', () => {
+  for (const message of ['Cloudflare 1102', '图像处理超过了当前服务器的运行资源限制']) {
+    const result = importErrorForUser(new Error(message), '流水.pdf');
+    assert.equal(result.diagnosticCode, 'WORKER_RESOURCE_LIMIT');
+    assert.equal(result.retryable, true);
+    assert.match(result.message, /运行资源/);
+    assert.doesNotMatch(result.message, /75MB|压缩|拆分/);
+  }
+});
+
 test('gateway timeout identifies the final normalization stage instead of blaming the PDF', () => {
   const result = importErrorForUser(new Error('服务返回异常（524）'), '长流水.pdf');
   assert.match(result.message, /最终整理等待超时/);
